@@ -440,4 +440,4 @@ cargo test --test config
 
 ## 许可证
 
-MIT
+AGPL3
