@@ -1,6 +1,6 @@
 # DNS Proxy
 
-一个支持 DoQ、DoH、DoT、DoH3 协议的 DNS 代理服务器，可以从 SNI 中提取前缀信息并重写后转发到上游服务器。
+一个高性能、模块化的 DNS 代理服务器，支持 DoQ、DoH、DoT、DoH3 协议，能够从 SNI（Server Name Indication）中提取前缀信息并重写后转发到上游服务器。
 
 ## 功能特性
 
@@ -8,34 +8,254 @@
 - ✅ **DoH (DNS over HTTPS)** - TCP 443 端口
 - ✅ **DoQ (DNS over QUIC)** - UDP 853 端口
 - ⚠️ **DoH3 (DNS over HTTP/3)** - UDP 443 端口（需要证书配置）
+- 🔒 **动态 TLS 证书选择** - 基于 SNI 自动选择证书
+- 🎯 **多域名支持** - 支持多个基准域名的前缀提取和重写
+- 🚀 **高性能** - 基于 Tokio 异步运行时，支持高并发
 
-## 架构
+## 工作原理
 
-项目采用模块化设计，支持扩展：
+### 整体架构
+
+```
+┌─────────────┐
+│   Client    │
+└──────┬──────┘
+       │ DNS Query (SNI: www.example.org)
+       ▼
+┌─────────────────────────────────────┐
+│      DNS Proxy Server               │
+│  ┌───────────────────────────────┐  │
+│  │  Protocol Readers             │  │
+│  │  - DoH (TCP 443)              │  │
+│  │  - DoT (TCP 853)              │  │
+│  │  - DoQ (UDP 853)              │  │
+│  │  - DoH3 (UDP 443)             │  │
+│  └───────────┬───────────────────┘  │
+│              │                        │
+│  ┌───────────▼───────────────────┐  │
+│  │  SNI Extractor                 │  │
+│  │  - DoH: Host header            │  │
+│  │  - DoT: TLS handshake          │  │
+│  └───────────┬───────────────────┘  │
+│              │                        │
+│  ┌───────────▼───────────────────┐  │
+│  │  SNI Rewriter                  │  │
+│  │  www.example.org                │  │
+│  │    → extract "www"              │  │
+│  │    → build "www.example.cn"    │  │
+│  └───────────┬───────────────────┘  │
+│              │                        │
+│  ┌───────────▼───────────────────┐  │
+│  │  Certificate Resolver           │  │
+│  │  - Select cert by SNI           │  │
+│  │  - Cache certificates           │  │
+│  └───────────┬───────────────────┘  │
+└──────────────┼───────────────────────┘
+               │ Forward to upstream
+               ▼
+┌─────────────────────────────────────┐
+│   Upstream DNS Server                │
+│   (www.example.cn)                   │
+└─────────────────────────────────────┘
+```
+
+### 工作流程详解
+
+#### 1. 启动阶段
+
+```
+main.rs
+  └─> 加载配置 (config.toml 或默认值)
+      └─> 创建 App 实例
+          └─> 创建 SNI Rewriter
+              └─> 启动各个协议的服务器（并行）
+                  ├─> DoT Server (TCP 853)
+                  ├─> DoH Server (TCP 443)
+                  ├─> DoQ Server (UDP 853)
+                  └─> DoH3 Server (UDP 443)
+```
+
+#### 2. 请求处理流程（以 DoH 为例）
+
+```
+1. 客户端请求
+   └─> GET/POST https://www.example.org/dns-query
+       └─> Host: www.example.org
+
+2. DoH Server 接收
+   └─> 提取 Host header → SNI: "www.example.org"
+       └─> 调用 SNI Rewriter
+
+3. SNI Rewriter 处理
+   └─> 匹配基准域名: ["example.com", "example.org"]
+       └─> 找到匹配: "example.org"
+           └─> 提取前缀: "www"
+               └─> 构建目标: "www.example.cn"
+                   └─> 缓存映射关系
+
+4. 转发请求
+   └─> 构建上游 URI: https://www.example.cn/dns-query
+       └─> 复制请求头（更新 Host）
+           └─> 转发到上游服务器
+               └─> 返回响应给客户端
+```
+
+#### 3. SNI 重写逻辑
+
+**前缀提取算法：**
+
+```rust
+输入: SNI = "www.example.org"
+配置: base_domains = ["example.com", "example.org"]
+      target_suffix = ".example.cn"
+
+步骤:
+1. 遍历 base_domains
+2. 检查 SNI 是否以 base_domain 结尾
+   - "www.example.org".ends_with("example.org") ✓
+3. 提取剩余部分
+   - rest = "www.example.org".strip_suffix("example.org") = "www."
+4. 验证格式（必须以 '.' 结尾且不为空）
+   - rest.ends_with('.') && !rest.is_empty() ✓
+5. 提取前缀
+   - prefix = "www.".strip_suffix('.') = "www"
+6. 构建目标主机名
+   - target = prefix + target_suffix = "www.example.cn"
+```
+
+**示例：**
+
+| 输入 SNI          | 匹配基准域名  | 提取前缀 | 目标主机名                 |
+| ----------------- | ------------- | -------- | -------------------------- |
+| `www.example.org` | `example.org` | `www`    | `www.example.cn`           |
+| `api.example.com` | `example.com` | `api`    | `api.example.cn`           |
+| `sub.example.org` | `example.org` | `sub`    | `sub.example.cn`           |
+| `example.org`     | -             | -        | 不匹配（无前缀）           |
+| `www.other.com`   | -             | -        | 不匹配（不在基准域名列表） |
+
+#### 4. TLS 证书选择
+
+```
+TLS 握手请求 (SNI: www.example.org)
+  └─> CertificateResolver.resolve()
+      ├─> 检查缓存
+      │   └─> 命中 → 返回缓存的证书
+      └─> 未命中
+          └─> 查找证书配置
+              ├─> 查找 tls.certs["www.example.org"] → 未找到
+              ├─> 查找 tls.certs["example.org"] → 未找到
+              └─> 回退到 tls.default → 找到
+                  └─> 加载证书文件
+                      └─> 缓存并返回
+```
+
+**证书选择优先级：**
+
+1. **精确匹配** - `tls.certs[SNI]`（例如：`tls.certs["www.example.org"]`）
+2. **基准域名匹配** - `tls.certs[base_domain]`（例如：`tls.certs["example.org"]`）
+3. **默认证书** - `tls.default`（如果配置）
+4. **错误** - 如果没有找到任何证书配置
+
+#### 5. 各协议实现细节
+
+**DoH (DNS over HTTPS)**
+
+- 监听端口：TCP 443
+- SNI 提取：从 HTTP `Host` header
+- 请求转发：使用 Hyper HTTP 客户端
+- 支持方法：GET、POST
+
+**DoT (DNS over TLS)**
+
+- 监听端口：TCP 853
+- SNI 提取：从 TLS handshake（通过 `ClientHello`）
+- 请求转发：TLS 隧道转发
+- 证书选择：动态证书解析器
+
+**DoQ (DNS over QUIC)**
+
+- 监听端口：UDP 853
+- SNI 提取：从 QUIC connection（待实现）
+- 请求转发：UDP 数据包转发
+
+**DoH3 (DNS over HTTP/3)**
+
+- 监听端口：UDP 443
+- 状态：需要完整的 QUIC 证书配置（待实现）
+
+## 项目架构
+
+### 目录结构
 
 ```
 src/
-├── main.rs              # 启动入口
-├── app.rs              # 应用管理
-├── config.rs           # 配置管理
-├── sni.rs              # SNI trait 定义
-├── rewrite.rs          # Rewriter 工厂
-├── readers/            # 协议服务器实现
-│   ├── doh.rs         # DoH 服务器
-│   ├── dot.rs         # DoT 服务器
-│   ├── doq.rs         # DoQ 服务器
-│   └── doh3.rs        # DoH3 服务器
-└── rewriters/         # SNI 重写器实现
-    └── base.rs        # 基础重写器
+├── main.rs              # 程序入口，初始化日志和配置
+├── app.rs               # 应用生命周期管理，启动各协议服务器
+├── config.rs            # 配置结构定义和加载逻辑
+├── sni.rs               # SNI 重写器 trait 定义
+├── rewrite.rs           # Rewriter 工厂函数
+├── tls_utils.rs         # TLS 证书加载和动态选择
+├── readers/             # 协议服务器实现
+│   ├── mod.rs          # 模块导出
+│   ├── doh.rs          # DoH 服务器实现
+│   ├── dot.rs          # DoT 服务器实现
+│   ├── doq.rs          # DoQ 服务器实现
+│   └── doh3.rs         # DoH3 服务器实现（占位）
+└── rewriters/          # SNI 重写器实现
+    ├── mod.rs          # 模块导出
+    └── base.rs         # 基础前缀提取重写器
+
+tests/                   # 测试用例
+├── config.rs           # 配置模块测试
+├── rewriters_base.rs   # 重写器测试
+├── rewrite.rs          # 工厂函数测试
+├── tls_utils.rs        # TLS 工具测试
+└── app.rs              # 应用测试
 ```
 
-### 核心模块
+### 核心模块说明
 
-- **`sni.rs`** - 定义 `SniRewriter` trait 和 `RewriteResult` 结构
-- **`readers/`** - 各协议的服务器实现，每个协议独立文件
-- **`rewriters/`** - SNI 重写器实现，支持自定义重写逻辑
-- **`config.rs`** - 配置管理，支持从 TOML 文件加载
-- **`app.rs`** - 应用生命周期管理
+#### `sni.rs` - SNI 重写器接口
+
+定义了 `SniRewriter` trait，所有重写器必须实现：
+
+```rust
+pub trait SniRewriter {
+    async fn rewrite(&self, sni: &str) -> Option<RewriteResult>;
+}
+```
+
+#### `rewriters/base.rs` - 基础重写器
+
+实现了前缀提取和重写逻辑：
+
+- 支持多个基准域名
+- 前缀提取算法
+- 目标主机名构建
+- SNI 映射缓存
+
+#### `readers/` - 协议服务器
+
+每个协议独立的服务器实现：
+
+- 监听指定端口
+- 提取 SNI（从不同来源）
+- 调用重写器
+- 转发请求到上游
+
+#### `tls_utils.rs` - TLS 证书管理
+
+- 动态证书加载
+- 基于 SNI 的证书选择
+- 证书缓存机制
+- 锁中毒检测
+
+#### `app.rs` - 应用管理
+
+- 配置加载和验证
+- 重写器创建
+- 各协议服务器启动（并行）
+- 生命周期管理
 
 ## 配置说明
 
@@ -86,11 +306,12 @@ doq = "8.8.8.8:853"
 doh3 = "https://dns.google/dns-query"
 
 [tls]
-# TLS 证书配置
-# 默认证书（可选，当没有找到域名特定证书时使用）
+# 默认证书配置（可选，当没有找到域名特定证书时使用）
 [tls.default]
 cert_file = "/path/to/default-cert.pem"
 key_file = "/path/to/default-key.pem"
+# ca_file = "/path/to/default-ca.pem"
+require_client_cert = false
 
 # 为每个基准域名配置独立的证书
 [tls.certs.example.com]
@@ -102,33 +323,44 @@ cert_file = "/path/to/example-org-cert.pem"
 key_file = "/path/to/example-org-key.pem"
 ```
 
-### SNI 重写逻辑
+### 配置项说明
 
-支持多个基准域名的前缀提取和重写：
+#### `[rewrite]` - 重写配置
 
-**示例 1：** 当收到 SNI 为 `www.example.org` 时：
+- **`base_domains`** (必需): 基准域名列表，用于匹配和提取前缀
+- **`target_suffix`** (必需): 目标域名后缀，与提取的前缀组合
 
-1. 匹配基准域名：`example.org` ✓
-2. 提取前缀：`www`
-3. 构建目标主机名：`www.example.cn`
-4. 将请求转发到 `www.example.cn`
+#### `[servers.*]` - 服务器配置
 
-**示例 2：** 当收到 SNI 为 `api.example.com` 时：
+每个协议服务器配置：
 
-1. 匹配基准域名：`example.com` ✓
-2. 提取前缀：`api`
-3. 构建目标主机名：`api.example.cn`
-4. 将请求转发到 `api.example.cn`
+- **`enabled`**: 是否启用该协议服务器
+- **`bind_address`**: 绑定地址（如 "0.0.0.0" 或 "127.0.0.1"）
+- **`port`**: 监听端口
 
-**示例 3：** 当收到 SNI 为 `example.org` 时（无前缀）：
+#### `[upstream]` - 上游服务器配置
 
-- 不匹配，不进行重写
+- **`default`**: 默认上游服务器（所有协议的回退选项）
+- **`dot`**, **`doh`**, **`doq`**, **`doh3`**: 协议特定的上游服务器（可选）
+
+#### `[tls]` - TLS 证书配置
+
+- **`[tls.default]`**: 默认证书配置（可选）
+- **`[tls.certs.<domain>]`**: 域名特定的证书配置
+  - **`cert_file`**: 证书文件路径（PEM 格式）
+  - **`key_file`**: 私钥文件路径（PEM 格式）
+  - **`ca_file`**: CA 证书文件路径（可选）
+  - **`require_client_cert`**: 是否要求客户端证书（默认：false）
 
 ## 使用方法
 
 ### 编译
 
 ```bash
+# 开发模式
+cargo build
+
+# 发布模式
 cargo build --release
 ```
 
@@ -142,13 +374,23 @@ cargo run
 ./target/release/dns-proxy
 ```
 
+### 测试
+
+```bash
+# 运行所有测试
+cargo test
+
+# 运行特定测试
+cargo test --test config
+```
+
 ## 扩展性
 
 ### 添加新的协议支持
 
 要添加新的协议支持，请参考 `src/readers/README.md`：
 
-1. 在 `readers/` 目录下创建新的协议文件
+1. 在 `readers/` 目录下创建新的协议文件（如 `new_protocol.rs`）
 2. 实现服务器结构体和 `start()` 方法
 3. 在 `readers/mod.rs` 中导出
 4. 在 `app.rs` 中添加启动逻辑
@@ -162,58 +404,26 @@ cargo run
 3. 在 `rewriters/mod.rs` 中导出
 4. 在 `rewrite.rs` 中更新工厂函数（可选）
 
-## TLS 证书配置
+## 性能优化
 
-支持为每个基准域名配置独立的证书文件。这对于多域名场景非常有用，因为一个证书通常只包含一个或几个域名。
+项目采用了多项性能优化措施：
 
-### 配置方式
-
-```toml
-[tls]
-# 默认证书配置（可选）
-# 当没有找到域名特定的证书时使用
-[tls.default]
-cert_file = "/path/to/default-cert.pem"
-key_file = "/path/to/default-key.pem"
-# ca_file = "/path/to/default-ca.pem"
-require_client_cert = false
-
-# 为每个基准域名配置独立的证书
-[tls.certs.example.com]
-cert_file = "/path/to/example-com-cert.pem"
-key_file = "/path/to/example-com-key.pem"
-# ca_file = "/path/to/example-com-ca.pem"
-require_client_cert = false
-
-[tls.certs.example.org]
-cert_file = "/path/to/example-org-cert.pem"
-key_file = "/path/to/example-org-key.pem"
-# ca_file = "/path/to/example-org-ca.pem"
-require_client_cert = false
-```
-
-### 证书选择逻辑
-
-1. 当收到 SNI 请求时，首先查找该域名在 `tls.certs` 中的配置
-2. 如果找到，使用该域名的证书配置
-3. 如果未找到，回退到 `tls.default` 配置（如果存在）
-4. 如果都没有配置，将无法处理 TLS 连接
-
-### 配置说明
-
-- **`cert_file`** - 证书文件路径（PEM 格式，必需）
-- **`key_file`** - 私钥文件路径（PEM 格式，必需）
-- **`ca_file`** - CA 证书文件路径（可选，用于客户端证书验证）
-- **`require_client_cert`** - 是否要求客户端证书（默认：false）
+1. **共享配置** - 使用 `Arc<AppConfig>` 避免配置复制
+2. **证书缓存** - TLS 证书加载后缓存，避免重复文件 I/O
+3. **SNI 映射缓存** - 重写结果缓存，提高查询速度
+4. **异步 I/O** - 基于 Tokio 的异步运行时，支持高并发
+5. **零拷贝优化** - 减少不必要的字符串分配和复制
 
 ## 待完善功能
 
-- [ ] DoT 协议中完整的 SNI 提取和重写
+- [ ] DoT 协议中完整的 SNI 提取和重写（当前为简化实现）
 - [ ] DoQ 协议中 QUIC 连接的 SNI 提取和重写
 - [ ] DoH3 协议的完整实现（需要证书配置）
 - [ ] TLS 证书动态加载和热重载
 - [ ] 更完善的错误处理和日志记录
 - [ ] 性能监控和统计
+- [ ] 健康检查端点
+- [ ] 配置热重载
 
 ## 依赖
 
@@ -226,6 +436,7 @@ require_client_cert = false
 - `anyhow` - 错误处理
 - `bytes` - 字节处理
 - `http-body-util` - HTTP body 工具
+- `async-trait` - 异步 trait 支持
 
 ## 许可证
 
