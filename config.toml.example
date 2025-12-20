@@ -1,0 +1,69 @@
+# DNS Proxy Configuration Example
+
+[rewrite]
+# Base domains to match (e.g., ["example.com", "example.org"])
+# The rewriter will extract prefix from hostnames matching these base domains
+# Examples:
+#   - "www.example.org" -> extract "www" -> rewrite to "www.example.cn"
+#   - "api.example.com" -> extract "api" -> rewrite to "api.example.cn"
+base_domains = ["example.com", "example.org"]
+# Target suffix for upstream (e.g., "www" -> "www.example.cn")
+target_suffix = ".example.cn"
+
+[servers]
+# DNS over TLS (DoT) - TCP 853
+[servers.dot]
+enabled = true
+bind_address = "0.0.0.0"
+port = 853
+
+# DNS over HTTPS (DoH) - TCP 443
+[servers.doh]
+enabled = true
+bind_address = "0.0.0.0"
+port = 443
+
+# DNS over QUIC (DoQ) - UDP 853
+[servers.doq]
+enabled = true
+bind_address = "0.0.0.0"
+port = 853
+
+# DNS over HTTP/3 (DoH3) - UDP 443
+[servers.doh3]
+enabled = false
+bind_address = "0.0.0.0"
+port = 443
+
+[upstream]
+# Default upstream server
+default = "8.8.8.8:853"
+# Protocol-specific upstream servers (optional, falls back to default)
+dot = "8.8.8.8:853"
+doh = "https://dns.google/dns-query"
+doq = "8.8.8.8:853"
+doh3 = "https://dns.google/dns-query"
+
+[tls]
+# Default certificate configuration (optional)
+# Used when no domain-specific certificate is configured
+[tls.default]
+cert_file = "/path/to/default-cert.pem"
+key_file = "/path/to/default-key.pem"
+# ca_file = "/path/to/default-ca.pem"
+require_client_cert = false
+
+# Domain-specific certificate configurations
+# Each base domain can have its own certificate files
+[tls.certs.example.com]
+cert_file = "/path/to/example-com-cert.pem"
+key_file = "/path/to/example-com-key.pem"
+# ca_file = "/path/to/example-com-ca.pem"
+require_client_cert = false
+
+[tls.certs.example.org]
+cert_file = "/path/to/example-org-cert.pem"
+key_file = "/path/to/example-org-key.pem"
+# ca_file = "/path/to/example-org-ca.pem"
+require_client_cert = false
+
