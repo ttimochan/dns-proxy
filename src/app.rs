@@ -5,7 +5,7 @@ use tracing::{error, info};
 
 pub struct App {
     config: AppConfig,
-    rewriter: SniRewriterType,
+    pub rewriter: SniRewriterType,
 }
 
 impl App {

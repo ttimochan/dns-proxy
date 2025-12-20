@@ -10,7 +10,7 @@ use tokio::fs;
 
 pub struct CertificateResolver {
     config: AppConfig,
-    cert_cache: Arc<Mutex<HashMap<String, Arc<CertifiedKey>>>>,
+    pub cert_cache: Arc<Mutex<HashMap<String, Arc<CertifiedKey>>>>,
 }
 
 impl CertificateResolver {
@@ -85,7 +85,7 @@ impl CertificateResolver {
 }
 
 pub struct DynamicCertResolver {
-    resolver: Arc<CertificateResolver>,
+    pub resolver: Arc<CertificateResolver>,
 }
 
 impl DynamicCertResolver {

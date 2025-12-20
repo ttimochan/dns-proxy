@@ -80,21 +80,6 @@ impl Default for TlsConfig {
     }
 }
 
-impl TlsConfig {
-    /// Get certificate configuration for a specific domain
-    /// Returns domain-specific cert if exists, otherwise returns default cert
-    pub fn get_cert_config(&self, domain: &str) -> Option<&CertificateConfig> {
-        self.certs.get(domain).or(self.default.as_ref())
-    }
-
-    /// Get certificate configuration for a specific domain, or return error if not found
-    pub fn get_cert_config_or_err(&self, domain: &str) -> Result<&CertificateConfig> {
-        self.get_cert_config(domain).ok_or_else(|| {
-            anyhow::anyhow!("No certificate configuration found for domain: {}", domain)
-        })
-    }
-}
-
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -180,5 +165,20 @@ impl AppConfig {
             .or_else(|| Some(&self.upstream.default))
             .and_then(|s| s.parse().ok())
             .unwrap_or_else(|| "8.8.8.8:853".parse().unwrap())
+    }
+}
+
+impl TlsConfig {
+    /// Get certificate configuration for a specific domain
+    /// Returns domain-specific cert if exists, otherwise returns default cert
+    pub fn get_cert_config(&self, domain: &str) -> Option<&CertificateConfig> {
+        self.certs.get(domain).or(self.default.as_ref())
+    }
+
+    /// Get certificate configuration for a specific domain, or return error if not found
+    pub fn get_cert_config_or_err(&self, domain: &str) -> Result<&CertificateConfig> {
+        self.get_cert_config(domain).ok_or_else(|| {
+            anyhow::anyhow!("No certificate configuration found for domain: {}", domain)
+        })
     }
 }

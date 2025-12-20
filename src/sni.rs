@@ -1,3 +1,4 @@
+#[async_trait::async_trait]
 pub trait SniRewriter {
     async fn rewrite(&self, sni: &str) -> Option<RewriteResult>;
 }

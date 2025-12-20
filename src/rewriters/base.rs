@@ -7,7 +7,7 @@ use tracing::info;
 
 pub struct BaseSniRewriter {
     config: RewriteConfig,
-    sni_map: Arc<RwLock<HashMap<String, String>>>,
+    pub sni_map: Arc<RwLock<HashMap<String, String>>>,
 }
 
 impl BaseSniRewriter {
@@ -18,7 +18,7 @@ impl BaseSniRewriter {
         }
     }
 
-    fn extract_prefix(&self, sni: &str) -> Option<String> {
+    pub fn extract_prefix(&self, sni: &str) -> Option<String> {
         for base_domain in &self.config.base_domains {
             if let Some(rest) = sni.strip_suffix(base_domain) {
                 if !rest.is_empty() && rest.ends_with('.') {
@@ -32,11 +32,12 @@ impl BaseSniRewriter {
         None
     }
 
-    fn build_target_hostname(&self, prefix: &str) -> String {
+    pub fn build_target_hostname(&self, prefix: &str) -> String {
         format!("{}{}", prefix, self.config.target_suffix)
     }
 }
 
+#[async_trait::async_trait]
 impl SniRewriter for BaseSniRewriter {
     async fn rewrite(&self, sni: &str) -> Option<RewriteResult> {
         let prefix = self.extract_prefix(sni)?;
@@ -60,6 +61,7 @@ impl SniRewriter for BaseSniRewriter {
     }
 }
 
+#[async_trait::async_trait]
 impl SniRewriter for std::sync::Arc<BaseSniRewriter> {
     async fn rewrite(&self, sni: &str) -> Option<RewriteResult> {
         self.as_ref().rewrite(sni).await
