@@ -1,15 +1,17 @@
 use crate::config::AppConfig;
 use crate::rewrite::{SniRewriterType, create_rewriter};
 use anyhow::Result;
+use std::sync::Arc;
 use tracing::{error, info};
 
 pub struct App {
-    config: AppConfig,
+    config: Arc<AppConfig>,
     pub rewriter: SniRewriterType,
 }
 
 impl App {
     pub fn new(config: AppConfig) -> Self {
+        let config = Arc::new(config);
         let rewriter = create_rewriter(config.rewrite.clone());
         Self { config, rewriter }
     }
@@ -32,13 +34,18 @@ impl App {
         }
 
         use crate::readers::DoTServer;
-        let server = DoTServer::new(self.config.clone(), self.rewriter.clone());
+        let config = Arc::clone(&self.config);
+        let rewriter = Arc::clone(&self.rewriter);
         tokio::spawn(async move {
+            let server = DoTServer::new(config, rewriter);
             if let Err(e) = server.start().await {
                 error!("DoT server error: {}", e);
             }
         });
-        info!("DoT server started");
+        info!(
+            "DoT server started on {}:{}",
+            self.config.servers.dot.bind_address, self.config.servers.dot.port
+        );
     }
 
     fn start_doh_server(&self) {
@@ -47,13 +54,18 @@ impl App {
         }
 
         use crate::readers::DoHServer;
-        let server = DoHServer::new(self.config.clone(), self.rewriter.clone());
+        let config = Arc::clone(&self.config);
+        let rewriter = Arc::clone(&self.rewriter);
         tokio::spawn(async move {
+            let server = DoHServer::new(config, rewriter);
             if let Err(e) = server.start().await {
                 error!("DoH server error: {}", e);
             }
         });
-        info!("DoH server started");
+        info!(
+            "DoH server started on {}:{}",
+            self.config.servers.doh.bind_address, self.config.servers.doh.port
+        );
     }
 
     fn start_doq_server(&self) {
@@ -62,13 +74,18 @@ impl App {
         }
 
         use crate::readers::DoQServer;
-        let server = DoQServer::new(self.config.clone(), self.rewriter.clone());
+        let config = Arc::clone(&self.config);
+        let rewriter = Arc::clone(&self.rewriter);
         tokio::spawn(async move {
+            let server = DoQServer::new(config, rewriter);
             if let Err(e) = server.start().await {
                 error!("DoQ server error: {}", e);
             }
         });
-        info!("DoQ server started");
+        info!(
+            "DoQ server started on {}:{}",
+            self.config.servers.doq.bind_address, self.config.servers.doq.port
+        );
     }
 
     fn start_doh3_server(&self) {
@@ -77,12 +94,17 @@ impl App {
         }
 
         use crate::readers::DoH3Server;
-        let server = DoH3Server::new(self.config.clone(), self.rewriter.clone());
+        let config = Arc::clone(&self.config);
+        let rewriter = Arc::clone(&self.rewriter);
         tokio::spawn(async move {
+            let server = DoH3Server::new(config, rewriter);
             if let Err(e) = server.start().await {
                 error!("DoH3 server error: {}", e);
             }
         });
-        info!("DoH3 server started");
+        info!(
+            "DoH3 server started on {}:{}",
+            self.config.servers.doh3.bind_address, self.config.servers.doh3.port
+        );
     }
 }

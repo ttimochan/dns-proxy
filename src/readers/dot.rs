@@ -11,12 +11,12 @@ use tokio_rustls::{TlsAcceptor, TlsConnector};
 use tracing::{error, info};
 
 pub struct DoTServer {
-    config: AppConfig,
+    config: Arc<AppConfig>,
     rewriter: SniRewriterType,
 }
 
 impl DoTServer {
-    pub fn new(config: AppConfig, rewriter: SniRewriterType) -> Self {
+    pub fn new(config: Arc<AppConfig>, rewriter: SniRewriterType) -> Self {
         Self { config, rewriter }
     }
 
@@ -27,7 +27,7 @@ impl DoTServer {
             return Ok(());
         }
 
-        let server_tls_config = tls_utils::create_server_config(&self.config)
+        let server_tls_config = tls_utils::create_server_config(self.config.as_ref())
             .await
             .context("Failed to create TLS server config")?;
         let acceptor = TlsAcceptor::from(Arc::new(server_tls_config));
@@ -44,7 +44,7 @@ impl DoTServer {
                 Ok((stream, addr)) => {
                     info!("New DoT connection from {}", addr);
                     let acceptor = acceptor.clone();
-                    let rewriter = self.rewriter.clone();
+                    let rewriter = Arc::clone(&self.rewriter);
                     let upstream = self.config.dot_upstream();
                     tokio::spawn(async move {
                         match acceptor.accept(stream).await {

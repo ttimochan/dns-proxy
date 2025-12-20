@@ -143,10 +143,14 @@ impl AppConfig {
     pub fn dot_upstream(&self) -> SocketAddr {
         self.upstream
             .dot
-            .as_ref()
-            .or_else(|| Some(&self.upstream.default))
+            .as_deref()
+            .or_else(|| Some(self.upstream.default.as_str()))
             .and_then(|s| s.parse().ok())
-            .unwrap_or_else(|| "8.8.8.8:853".parse().unwrap())
+            .unwrap_or_else(|| {
+                "8.8.8.8:853"
+                    .parse()
+                    .expect("Hardcoded upstream address should be valid")
+            })
     }
 
     /// Get upstream URL for DoH
@@ -161,10 +165,14 @@ impl AppConfig {
     pub fn doq_upstream(&self) -> SocketAddr {
         self.upstream
             .doq
-            .as_ref()
-            .or_else(|| Some(&self.upstream.default))
+            .as_deref()
+            .or_else(|| Some(self.upstream.default.as_str()))
             .and_then(|s| s.parse().ok())
-            .unwrap_or_else(|| "8.8.8.8:853".parse().unwrap())
+            .unwrap_or_else(|| {
+                "8.8.8.8:853"
+                    .parse()
+                    .expect("Hardcoded upstream address should be valid")
+            })
     }
 }
 

@@ -7,12 +7,12 @@ use tokio::net::UdpSocket;
 use tracing::{error, info};
 
 pub struct DoQServer {
-    config: AppConfig,
+    config: Arc<AppConfig>,
     rewriter: SniRewriterType,
 }
 
 impl DoQServer {
-    pub fn new(config: AppConfig, rewriter: SniRewriterType) -> Self {
+    pub fn new(config: Arc<AppConfig>, rewriter: SniRewriterType) -> Self {
         Self { config, rewriter }
     }
 
@@ -39,16 +39,14 @@ impl DoQServer {
                 Ok((len, addr)) => {
                     info!("DoQ packet from {}: {} bytes", addr, len);
                     let packet = buf[..len].to_vec();
-                    let socket_clone = socket.clone();
-                    let upstream = upstream;
-                    let rewriter = self.rewriter.clone();
+                    let socket = Arc::clone(&socket);
+                    let rewriter = Arc::clone(&self.rewriter);
 
                     tokio::spawn(async move {
                         if let Err(e) =
-                            Self::handle_packet(socket_clone, packet, addr, upstream, rewriter)
-                                .await
+                            Self::handle_packet(socket, packet, addr, upstream, rewriter).await
                         {
-                            error!("DoQ packet handling error: {}", e);
+                            error!("DoQ packet handling error from {}: {}", addr, e);
                         }
                     });
                 }

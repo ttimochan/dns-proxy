@@ -60,24 +60,35 @@ impl CertificateResolver {
     }
 
     pub async fn get_cert_for_domain(&self, domain: &str) -> Result<Arc<CertifiedKey>> {
+        // Check cache first (fast path)
         {
-            let cache = self.cert_cache.lock().unwrap();
+            let cache = self
+                .cert_cache
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Certificate cache lock poisoned: {}", e))?;
             if let Some(cert) = cache.get(domain) {
-                return Ok(cert.clone());
+                return Ok(Arc::clone(cert));
             }
         }
 
+        // Load certificate from configuration
         let cert_config = self
             .config
             .tls
             .get_cert_config_or_err(domain)
             .with_context(|| format!("No certificate configuration for domain: {}", domain))?;
 
-        let cert = Self::load_certificate(cert_config).await?;
+        let cert = Self::load_certificate(cert_config)
+            .await
+            .with_context(|| format!("Failed to load certificate for domain: {}", domain))?;
 
+        // Update cache
         {
-            let mut cache = self.cert_cache.lock().unwrap();
-            cache.insert(domain.to_string(), cert.clone());
+            let mut cache = self
+                .cert_cache
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Certificate cache lock poisoned: {}", e))?;
+            cache.insert(domain.to_string(), Arc::clone(&cert));
         }
 
         Ok(cert)

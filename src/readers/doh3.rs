@@ -1,16 +1,17 @@
 use crate::config::AppConfig;
 use crate::rewrite::SniRewriterType;
 use anyhow::Result;
+use std::sync::Arc;
 use tracing::info;
 
 pub struct DoH3Server {
-    config: AppConfig,
+    config: Arc<AppConfig>,
     #[allow(dead_code)]
     rewriter: SniRewriterType,
 }
 
 impl DoH3Server {
-    pub fn new(config: AppConfig, rewriter: SniRewriterType) -> Self {
+    pub fn new(config: Arc<AppConfig>, rewriter: SniRewriterType) -> Self {
         Self { config, rewriter }
     }
 

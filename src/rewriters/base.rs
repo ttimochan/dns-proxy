@@ -43,10 +43,11 @@ impl SniRewriter for BaseSniRewriter {
         let prefix = self.extract_prefix(sni)?;
         let target_hostname = self.build_target_hostname(&prefix);
 
-        self.sni_map
-            .write()
-            .await
-            .insert(sni.to_string(), target_hostname.clone());
+        // Cache the mapping for future lookups
+        {
+            let mut cache = self.sni_map.write().await;
+            cache.insert(sni.to_string(), target_hostname.clone());
+        }
 
         info!(
             "SNI Rewrite: {} -> Prefix: {} -> Target: {}",
