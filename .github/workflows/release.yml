@@ -6,7 +6,6 @@ on:
       - "v*" 
 env:
   REGISTRY: docker.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-push:
@@ -33,7 +32,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: timochan/${{ env.IMAGE_NAME }}
+          images: timochan/dns-proxy
           tags: |
             type=ref,event=tag
             type=semver,pattern={{version}}
