@@ -27,3 +27,12 @@ toml = "0.8"
 
 [dev-dependencies]
 tempfile = "3.10"
+
+[profile.release]
+opt-level = "z"        
+lto = "fat"             
+codegen-units = 1
+panic = "abort"
+strip = "symbols"       
+debug = 0
+incremental = false
