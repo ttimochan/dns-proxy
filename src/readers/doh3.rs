@@ -9,7 +9,7 @@ use h3::server::Connection as H3ServerConnection;
 use hyper::Method;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 pub struct DoH3Server {
     config: Arc<AppConfig>,
@@ -50,14 +50,20 @@ impl DoH3Server {
             tokio::spawn(async move {
                 match conn.await {
                     Ok(connection) => {
-                        info!("New DoH3 connection from {}", connection.remote_address());
+                        let remote_addr = connection.remote_address();
+                        info!("New DoH3 connection from {}", remote_addr);
                         if let Err(e) = Self::handle_connection(connection, rewriter, &client).await
                         {
-                            error!("DoH3 connection error: {}", e);
+                            error!("DoH3 connection handling error from {}: {}", remote_addr, e);
+                        } else {
+                            debug!(
+                                "DoH3 connection from {} completed successfully",
+                                remote_addr
+                            );
                         }
                     }
                     Err(e) => {
-                        error!("DoH3 connection error: {}", e);
+                        error!("DoH3 connection establishment error: {}", e);
                     }
                 }
             });
@@ -90,7 +96,9 @@ impl DoH3Server {
                                 if let Err(e) =
                                     Self::handle_request(req, stream, rewriter, &client).await
                                 {
-                                    error!("DoH3 request error: {}", e);
+                                    error!("DoH3 request handling error: {}", e);
+                                } else {
+                                    debug!("DoH3 request handled successfully");
                                 }
                             }
                             Err(e) => {
@@ -101,10 +109,11 @@ impl DoH3Server {
                 }
                 Ok(None) => {
                     // Connection closed
+                    debug!("DoH3 connection closed by client");
                     break;
                 }
                 Err(e) => {
-                    error!("DoH3 accept error: {}", e);
+                    error!("DoH3 connection accept error: {}", e);
                     break;
                 }
             }
@@ -119,22 +128,43 @@ impl DoH3Server {
         rewriter: SniRewriterType,
         client: &HttpClient,
     ) -> Result<()> {
-        info!("New DoH3 request: {} {}", req.method(), req.uri());
+        let method = req.method().clone();
+        let uri = req.uri().clone();
+        info!("New DoH3 request: {} {}", method, uri);
 
         let host = req
             .headers()
             .get("host")
             .and_then(|h| h.to_str().ok())
-            .ok_or_else(|| anyhow::anyhow!("Missing or invalid Host header"))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Missing or invalid Host header in {} request to {}",
+                    method,
+                    uri
+                )
+            })
+            .context("Failed to extract Host header from DoH3 request")?;
+
+        debug!("Processing DoH3 request for host: {}", host);
 
         let rewrite_result = rewriter
             .rewrite(host)
             .await
-            .ok_or_else(|| anyhow::anyhow!("Failed to rewrite hostname: {}", host))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "SNI rewrite failed for hostname: {} (no matching base domain found)",
+                    host
+                )
+            })
+            .context("SNI rewrite operation failed for DoH3 request")?;
 
         info!(
-            "DoH3: {} -> Prefix: {} -> Target: {}",
-            rewrite_result.original, rewrite_result.prefix, rewrite_result.target_hostname
+            "DoH3 request: {} {} -> SNI rewrite: {} -> {} -> Target: {}",
+            method,
+            uri.path(),
+            rewrite_result.original,
+            rewrite_result.prefix,
+            rewrite_result.target_hostname
         );
 
         // Build upstream URI without unnecessary allocation
@@ -147,6 +177,8 @@ impl DoH3Server {
             "https://{}{}",
             rewrite_result.target_hostname, path_and_query
         );
+
+        debug!("Forwarding DoH3 request to upstream: {}", upstream_uri);
 
         // Read request body if POST (zerocopy where possible)
         let body = if *req.method() == Method::POST {
@@ -161,10 +193,12 @@ impl DoH3Server {
                     }
                     Ok(None) => break,
                     Err(e) => {
-                        return Err(anyhow::anyhow!("Failed to read request body: {}", e));
+                        return Err(anyhow::anyhow!("Failed to read DoH3 request body: {}", e))
+                            .context("Error reading request body from DoH3 stream");
                     }
                 }
             }
+            debug!("Read DoH3 request body: {} bytes", body_data.len());
             Bytes::from(body_data)
         } else {
             Bytes::new()
@@ -180,18 +214,25 @@ impl DoH3Server {
             body,
         )
         .await
-        .map_err(|e| anyhow::anyhow!("HTTP upstream error: {}", e))?;
+        .with_context(|| {
+            format!(
+                "Failed to forward DoH3 request to upstream: {}",
+                upstream_uri
+            )
+        })?;
+
+        debug!("Received response from upstream, sending to DoH3 client");
 
         // Send response back to client
         stream
             .send_response(response.map(|_| ()))
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send response: {}", e))?;
+            .context("Failed to send DoH3 response to client")?;
 
         stream
             .finish()
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to finish stream: {}", e))?;
+            .context("Failed to finish DoH3 response stream")?;
 
         Ok(())
     }

@@ -11,6 +11,8 @@ pub struct AppConfig {
     pub upstream: UpstreamConfig,
     #[serde(default)]
     pub tls: TlsConfig,
+    #[serde(default)]
+    pub logging: LoggingConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,6 +80,57 @@ pub struct TlsConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoggingConfig {
+    /// Log level: trace, debug, info, warn, error (default: info)
+    #[serde(default = "default_log_level")]
+    pub level: String,
+    /// Log file path (optional, if not set, logs only to stdout/stderr)
+    #[serde(default)]
+    pub file: Option<String>,
+    /// Enable JSON format for logs (default: false)
+    #[serde(default)]
+    pub json: bool,
+    /// Enable log rotation (default: true if file is set)
+    #[serde(default = "default_true")]
+    pub rotation: bool,
+    /// Maximum log file size in bytes before rotation (default: 10MB)
+    #[serde(default = "default_max_file_size")]
+    pub max_file_size: u64,
+    /// Number of log files to keep (default: 5)
+    #[serde(default = "default_max_files")]
+    pub max_files: usize,
+}
+
+fn default_log_level() -> String {
+    "info".to_string()
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_max_file_size() -> u64 {
+    10 * 1024 * 1024 // 10MB
+}
+
+fn default_max_files() -> usize {
+    5
+}
+
+impl Default for LoggingConfig {
+    fn default() -> Self {
+        Self {
+            level: default_log_level(),
+            file: None,
+            json: false,
+            rotation: default_true(),
+            max_file_size: default_max_file_size(),
+            max_files: default_max_files(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CertificateConfig {
     /// Certificate file path (PEM format)
     pub cert_file: String,
@@ -128,6 +181,7 @@ impl Default for AppConfig {
                 doh3: Some("https://dns.google/dns-query".to_string()),
             },
             tls: TlsConfig::default(),
+            logging: LoggingConfig::default(),
         }
     }
 }

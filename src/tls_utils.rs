@@ -107,22 +107,36 @@ impl DynamicCertResolver {
 
 impl ResolvesServerCert for DynamicCertResolver {
     fn resolve(&self, client_hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
-        let sni = client_hello.server_name()?;
+        let sni = match client_hello.server_name() {
+            Some(sni) => sni,
+            None => {
+                tracing::warn!("TLS handshake without SNI, cannot select certificate");
+                return None;
+            }
+        };
 
         let resolver = self.resolver.clone();
         let sni_str = sni.to_string();
 
+        tracing::debug!("Resolving certificate for SNI: {}", sni_str);
+
         let rt = tokio::runtime::Handle::try_current();
         if let Ok(handle) = rt {
             match handle.block_on(resolver.get_cert_for_domain(&sni_str)) {
-                Ok(cert) => Some(cert),
+                Ok(cert) => {
+                    tracing::debug!("Successfully loaded certificate for SNI: {}", sni_str);
+                    Some(cert)
+                }
                 Err(e) => {
-                    tracing::error!("Failed to load certificate for {}: {}", sni_str, e);
+                    tracing::error!("Failed to load certificate for SNI {}: {}", sni_str, e);
                     None
                 }
             }
         } else {
-            tracing::error!("No tokio runtime available for certificate loading");
+            tracing::error!(
+                "No tokio runtime available for certificate loading (SNI: {})",
+                sni_str
+            );
             None
         }
     }

@@ -74,3 +74,18 @@ key_file = "/path/to/example-org-key.pem"
 # ca_file = "/path/to/example-org-ca.pem"
 require_client_cert = false
 
+[logging]
+# Log level: trace, debug, info, warn, error (default: info)
+# Can also be set via RUST_LOG environment variable
+level = "info"
+# Log file path (optional, if not set, logs only to stdout/stderr)
+# file = "/var/log/dns-proxy/dns-proxy.log"
+# Enable JSON format for logs (default: false)
+# json = false
+# Enable log rotation (default: true if file is set)
+# rotation = true
+# Maximum log file size in bytes before rotation (default: 10MB)
+# max_file_size = 10485760
+# Number of log files to keep (default: 5)
+# max_files = 5
+

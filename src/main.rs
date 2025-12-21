@@ -1,5 +1,6 @@
 mod app;
 mod config;
+mod logging;
 mod proxy;
 mod quic;
 mod readers;
@@ -9,21 +10,36 @@ mod sni;
 mod tls_utils;
 mod upstream;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
-
+    // Load config first (before logging init) to get logging config
     let config = config::AppConfig::load_or_default("config.toml");
-    info!("Configuration loaded");
 
+    // Initialize logging system
+    let _guard =
+        logging::init_logging(&config.logging).context("Failed to initialize logging system")?;
+
+    info!("DNS Proxy Server starting...");
+    info!(
+        "Logging initialized - level: {}, file: {:?}, json: {}",
+        config.logging.level, config.logging.file, config.logging.json
+    );
+
+    // Create and start app
     let app = app::App::new(config);
-    app.start()?;
+    app.start().context("Failed to start DNS Proxy Server")?;
 
-    tokio::signal::ctrl_c().await?;
-    info!("Shutting down...");
+    info!("DNS Proxy Server started successfully. Press Ctrl+C to shutdown.");
+
+    // Wait for shutdown signal
+    tokio::signal::ctrl_c()
+        .await
+        .context("Failed to listen for shutdown signal")?;
+
+    info!("Shutdown signal received, shutting down gracefully...");
 
     Ok(())
 }

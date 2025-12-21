@@ -1,12 +1,12 @@
 use crate::rewrite::SniRewriterType;
 use crate::sni::SniRewriter;
 use crate::upstream::http::{HttpClient, forward_http_request};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use bytes::Bytes;
 use http_body_util::BodyExt;
 use hyper::body::Incoming;
 use hyper::{Method, Request, Response};
-use tracing::info;
+use tracing::{debug, info};
 
 /// Handle HTTP request with SNI rewriting and upstream forwarding
 pub async fn handle_http_request(
@@ -14,20 +14,42 @@ pub async fn handle_http_request(
     rewriter: SniRewriterType,
     client: &HttpClient,
 ) -> Result<Response<http_body_util::Full<hyper::body::Bytes>>> {
+    let method = req.method().clone();
+    let uri = req.uri().clone();
+
     let host = req
         .headers()
         .get("host")
         .and_then(|h| h.to_str().ok())
-        .ok_or_else(|| anyhow::anyhow!("Missing or invalid Host header"))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Missing or invalid Host header in {} request to {}",
+                method,
+                uri
+            )
+        })
+        .context("Failed to extract Host header from request")?;
+
+    debug!("Processing {} request for host: {}", method, host);
 
     let rewrite_result = rewriter
         .rewrite(host)
         .await
-        .ok_or_else(|| anyhow::anyhow!("Failed to rewrite hostname: {}", host))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "SNI rewrite failed for hostname: {} (no matching base domain found)",
+                host
+            )
+        })
+        .context("SNI rewrite operation failed")?;
 
     info!(
-        "HTTP: {} -> Prefix: {} -> Target: {}",
-        rewrite_result.original, rewrite_result.prefix, rewrite_result.target_hostname
+        "HTTP request: {} {} -> SNI rewrite: {} -> {} -> Target: {}",
+        method,
+        uri.path(),
+        rewrite_result.original,
+        rewrite_result.prefix,
+        rewrite_result.target_hostname
     );
 
     // Build upstream URI without unnecessary allocation
@@ -42,16 +64,23 @@ pub async fn handle_http_request(
         rewrite_result.target_hostname, path_and_query
     );
 
-    // Extract method and headers before consuming request
-    let method = req.method().clone();
+    debug!("Forwarding request to upstream: {}", upstream_uri);
+
+    // Extract headers before consuming request
     let headers = req.headers().clone();
 
     // Extract body if POST (zerocopy: reuse bytes when possible)
     let body = if method == Method::POST {
-        req.into_body().collect().await?.to_bytes()
+        req.into_body()
+            .collect()
+            .await
+            .context("Failed to read request body")?
+            .to_bytes()
     } else {
         Bytes::new()
     };
+
+    debug!("Request body size: {} bytes", body.len());
 
     // Forward request
     forward_http_request(
@@ -63,5 +92,10 @@ pub async fn handle_http_request(
         body,
     )
     .await
-    .map_err(|e| anyhow::anyhow!("HTTP upstream error: {}", e))
+    .with_context(|| {
+        format!(
+            "Failed to forward HTTP request to upstream: {}",
+            upstream_uri
+        )
+    })
 }

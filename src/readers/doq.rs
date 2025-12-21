@@ -41,14 +41,20 @@ impl DoQServer {
                 match conn.await {
                     Ok(connection) => {
                         info!("New DoQ connection from {}", connection.remote_address());
+                        let remote_addr = connection.remote_address();
                         if let Err(e) =
                             Self::handle_connection(connection, upstream, rewriter).await
                         {
-                            error!("DoQ connection error: {}", e);
+                            error!("DoQ connection handling error from {}: {}", remote_addr, e);
+                        } else {
+                            tracing::debug!(
+                                "DoQ connection from {} completed successfully",
+                                remote_addr
+                            );
                         }
                     }
                     Err(e) => {
-                        error!("DoQ connection error: {}", e);
+                        error!("DoQ connection establishment error: {}", e);
                     }
                 }
             });
@@ -67,7 +73,12 @@ impl DoQServer {
                 Ok((send, recv)) => {
                     // Forward stream using zerocopy where possible
                     if let Err(e) = forward_quic_stream(send, recv, upstream, "dns.google").await {
-                        error!("DoQ stream forwarding error: {}", e);
+                        error!(
+                            "DoQ stream forwarding error to upstream {}: {}",
+                            upstream, e
+                        );
+                    } else {
+                        tracing::debug!("DoQ stream forwarded successfully to {}", upstream);
                     }
                 }
                 Err(quinn::ConnectionError::ApplicationClosed { .. }) => {

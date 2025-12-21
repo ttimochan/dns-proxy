@@ -52,11 +52,12 @@ impl DoHServer {
                         let service = service_fn(move |req| {
                             let rewriter = Arc::clone(&rewriter);
                             let client = Arc::clone(&client);
+                            let client_addr = addr;
                             async move {
                                 handle_http_request(req, rewriter, &client)
                                     .await
                                     .map_err(|e| {
-                                        error!("DoH handler error from {}: {}", addr, e);
+                                        error!("DoH handler error from {}: {}", client_addr, e);
                                         std::io::Error::other(e.to_string())
                                     })
                             }
@@ -64,11 +65,15 @@ impl DoHServer {
 
                         if let Err(e) = http1::Builder::new().serve_connection(io, service).await {
                             error!("DoH connection error from {}: {}", addr, e);
+                        } else {
+                            tracing::debug!("DoH connection from {} completed", addr);
                         }
                     });
                 }
                 Err(e) => {
-                    error!("DoH accept error: {}", e);
+                    error!("DoH accept error on {}: {}", bind_addr, e);
+                    // Add a small delay to prevent tight error loop
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                 }
             }
         }

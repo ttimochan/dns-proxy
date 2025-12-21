@@ -390,6 +390,38 @@ key_file = "/path/to/example-org-key.pem"
   - **`ca_file`**: CA 证书文件路径（可选）
   - **`require_client_cert`**: 是否要求客户端证书（默认：false）
 
+#### `[logging]` - 日志配置
+
+- **`level`**: 日志级别，可选值：`trace`, `debug`, `info`, `warn`, `error`（默认：`info`）
+  - 也可以通过环境变量 `RUST_LOG` 设置，环境变量优先级更高
+- **`file`**: 日志文件路径（可选，如果未设置，日志仅输出到 stdout/stderr）
+- **`json`**: 是否启用 JSON 格式日志（默认：`false`）
+  - JSON 格式便于后续分析和日志聚合工具处理
+- **`rotation`**: 是否启用日志轮转（默认：`true`，仅在设置了 `file` 时生效）
+- **`max_file_size`**: 日志文件最大大小（字节），超过后轮转（默认：10485760，即 10MB）
+- **`max_files`**: 保留的日志文件数量（默认：`5`）
+
+**日志配置示例：**
+
+```toml
+[logging]
+level = "info"
+file = "/var/log/dns-proxy/dns-proxy.log"
+json = false
+rotation = true
+max_file_size = 10485760  # 10MB
+max_files = 5
+```
+
+**日志功能特性：**
+
+- ✅ 支持多级别日志（trace, debug, info, warn, error）
+- ✅ 支持文件输出和标准输出同时记录
+- ✅ 支持 JSON 格式日志（便于日志分析工具处理）
+- ✅ 支持日志轮转（按天或按大小）
+- ✅ 详细的错误上下文信息
+- ✅ 结构化日志记录（包含文件、行号、时间戳等）
+
 ## 使用方法
 
 ### 编译
@@ -470,7 +502,7 @@ cargo test -- --nocapture
 ## 待完善功能
 
 - [ ] TLS 证书动态加载和热重载
-- [ ] 更完善的错误处理和日志记录
+- [x] 更完善的错误处理和日志记录
 - [ ] 性能监控和统计
 - [ ] 配置热重载
 
@@ -488,8 +520,9 @@ cargo test -- --nocapture
 ### 工具依赖
 
 - `serde` / `toml` - 配置解析
-- `tracing` / `tracing-subscriber` - 日志记录
-- `anyhow` - 错误处理
+- `tracing` / `tracing-subscriber` - 日志记录（支持 JSON 格式和日志轮转）
+- `tracing-appender` - 日志文件输出和轮转
+- `anyhow` - 错误处理（提供详细的错误上下文）
 - `bytes` - 字节处理（零拷贝优化）
 - `http-body-util` - HTTP body 工具
 - `async-trait` - 异步 trait 支持
