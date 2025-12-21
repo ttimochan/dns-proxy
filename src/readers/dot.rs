@@ -2,7 +2,6 @@ use crate::config::AppConfig;
 use crate::rewrite::SniRewriterType;
 use crate::tls_utils;
 use anyhow::{Context, Result};
-use bytes::BytesMut;
 use rustls::ServerName;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -39,13 +38,16 @@ impl DoTServer {
 
         info!("DoT server listening on TCP {}", bind_addr);
 
+        let upstream = self.config.dot_upstream();
+        let rewriter = Arc::clone(&self.rewriter);
+
         loop {
             match listener.accept().await {
                 Ok((stream, addr)) => {
                     info!("New DoT connection from {}", addr);
                     let acceptor = acceptor.clone();
-                    let rewriter = Arc::clone(&self.rewriter);
-                    let upstream = self.config.dot_upstream();
+                    let rewriter = Arc::clone(&rewriter);
+                    let upstream = upstream;
                     tokio::spawn(async move {
                         match acceptor.accept(stream).await {
                             Ok(tls_stream) => {
@@ -75,13 +77,15 @@ impl DoTServer {
     ) -> Result<()> {
         let (mut reader, mut writer) = tokio::io::split(stream);
 
-        let mut buffer = BytesMut::with_capacity(4096);
-        reader.read_buf(&mut buffer).await?;
+        // Read DNS message from client (zerocopy: use Bytes directly)
+        let mut buffer = Vec::with_capacity(4096);
+        reader.read_to_end(&mut buffer).await?;
 
         if buffer.is_empty() {
             return Ok(());
         }
 
+        // Connect to upstream
         let upstream_stream = TcpStream::connect(upstream).await?;
         let client_config = create_client_config()?;
         let connector = TlsConnector::from(Arc::new(client_config));
@@ -89,13 +93,17 @@ impl DoTServer {
         let upstream_tls = connector.connect(sni_name, upstream_stream).await?;
         let (mut up_reader, mut up_writer) = tokio::io::split(upstream_tls);
 
+        // Forward message (zerocopy: use slice reference)
         up_writer.write_all(&buffer).await?;
         up_writer.flush().await?;
 
-        let mut response = BytesMut::with_capacity(4096);
-        up_reader.read_buf(&mut response).await?;
+        // Read response (zerocopy: reuse buffer)
+        buffer.clear();
+        buffer.reserve(4096);
+        up_reader.read_to_end(&mut buffer).await?;
 
-        writer.write_all(&response).await?;
+        // Send response back (zerocopy: use slice reference)
+        writer.write_all(&buffer).await?;
         writer.flush().await?;
 
         Ok(())

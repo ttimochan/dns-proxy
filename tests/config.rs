@@ -112,9 +112,6 @@ fn test_upstream_config() {
     let dot_upstream = config.dot_upstream();
     assert_eq!(dot_upstream.port(), 853);
 
-    let doh_upstream = config.doh_upstream();
-    assert!(doh_upstream.starts_with("https://"));
-
     let doq_upstream = config.doq_upstream();
     assert_eq!(doq_upstream.port(), 853);
 }

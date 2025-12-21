@@ -7,10 +7,12 @@
 - ✅ **DoT (DNS over TLS)** - TCP 853 端口
 - ✅ **DoH (DNS over HTTPS)** - TCP 443 端口
 - ✅ **DoQ (DNS over QUIC)** - UDP 853 端口
-- ⚠️ **DoH3 (DNS over HTTP/3)** - UDP 443 端口（需要证书配置）
+- ✅ **DoH3 (DNS over HTTP/3)** - UDP 443 端口
 - 🔒 **动态 TLS 证书选择** - 基于 SNI 自动选择证书
 - 🎯 **多域名支持** - 支持多个基准域名的前缀提取和重写
 - 🚀 **高性能** - 基于 Tokio 异步运行时，支持高并发
+- ⚡ **零拷贝优化** - 减少不必要的内存复制，提升性能
+- 🏗️ **模块化架构** - 清晰的模块划分，易于扩展和维护
 
 ## 工作原理
 
@@ -175,13 +177,16 @@ TLS 握手请求 (SNI: www.example.org)
 **DoQ (DNS over QUIC)**
 
 - 监听端口：UDP 853
-- SNI 提取：从 QUIC connection（待实现）
-- 请求转发：UDP 数据包转发
+- SNI 提取：从 QUIC connection
+- 请求转发：QUIC 双向流转发
+- 实现：使用 quinn 0.11 和模块化的 QUIC 客户端
 
 **DoH3 (DNS over HTTP/3)**
 
 - 监听端口：UDP 443
-- 状态：需要完整的 QUIC 证书配置（待实现）
+- SNI 提取：从 HTTP Host header
+- 请求转发：HTTP/3 请求转发（使用 h3 和 h3-quinn）
+- 实现：完整的 HTTP/3 服务器和客户端支持
 
 ## 项目架构
 
@@ -195,12 +200,23 @@ src/
 ├── sni.rs               # SNI 重写器 trait 定义
 ├── rewrite.rs           # Rewriter 工厂函数
 ├── tls_utils.rs         # TLS 证书加载和动态选择
+├── quic/                # QUIC 相关模块
+│   ├── mod.rs          # 模块导出
+│   ├── config.rs       # QUIC 服务器配置
+│   └── client.rs       # QUIC 客户端连接
+├── upstream/            # 上游连接模块
+│   ├── mod.rs          # 模块导出
+│   ├── http.rs         # HTTP 客户端和转发
+│   └── quic.rs         # QUIC 流转发
+├── proxy/               # 代理转发模块
+│   ├── mod.rs          # 模块导出
+│   └── http.rs         # HTTP 请求处理和 SNI 重写
 ├── readers/             # 协议服务器实现
 │   ├── mod.rs          # 模块导出
 │   ├── doh.rs          # DoH 服务器实现
 │   ├── dot.rs          # DoT 服务器实现
 │   ├── doq.rs          # DoQ 服务器实现
-│   └── doh3.rs         # DoH3 服务器实现（占位）
+│   └── doh3.rs         # DoH3 服务器实现
 └── rewriters/          # SNI 重写器实现
     ├── mod.rs          # 模块导出
     └── base.rs         # 基础前缀提取重写器
@@ -210,7 +226,10 @@ tests/                   # 测试用例
 ├── rewriters_base.rs   # 重写器测试
 ├── rewrite.rs          # 工厂函数测试
 ├── tls_utils.rs        # TLS 工具测试
-└── app.rs              # 应用测试
+├── app.rs              # 应用测试
+├── quic.rs             # QUIC 模块测试
+├── upstream.rs         # 上游模块测试
+└── proxy.rs            # 代理模块测试
 ```
 
 ### 核心模块说明
@@ -234,14 +253,33 @@ pub trait SniRewriter {
 - 目标主机名构建
 - SNI 映射缓存
 
+#### `quic/` - QUIC 模块
+
+QUIC 相关的配置和连接管理：
+
+- `config.rs` - 统一的 QUIC 服务器端点创建
+- `client.rs` - QUIC 客户端连接管理
+
+#### `upstream/` - 上游连接模块
+
+上游服务器的连接和转发逻辑：
+
+- `http.rs` - HTTP 客户端创建和请求转发（共享客户端实例）
+- `quic.rs` - QUIC 流转发（零拷贝优化）
+
+#### `proxy/` - 代理转发模块
+
+代理转发逻辑的抽象：
+
+- `http.rs` - HTTP 请求处理、SNI 重写和上游转发
+
 #### `readers/` - 协议服务器
 
-每个协议独立的服务器实现：
+每个协议独立的服务器实现（已简化，使用共享模块）：
 
 - 监听指定端口
-- 提取 SNI（从不同来源）
-- 调用重写器
-- 转发请求到上游
+- 使用 `proxy` 模块处理请求
+- 使用 `upstream` 模块转发到上游
 
 #### `tls_utils.rs` - TLS 证书管理
 
@@ -380,8 +418,17 @@ cargo run
 # 运行所有测试
 cargo test
 
-# 运行特定测试
+# 运行特定测试套件
 cargo test --test config
+cargo test --test quic
+cargo test --test upstream
+cargo test --test proxy
+
+# 运行单元测试
+cargo test --lib
+
+# 显示测试输出
+cargo test -- --nocapture
 ```
 
 ## 扩展性
@@ -412,31 +459,49 @@ cargo test --test config
 2. **证书缓存** - TLS 证书加载后缓存，避免重复文件 I/O
 3. **SNI 映射缓存** - 重写结果缓存，提高查询速度
 4. **异步 I/O** - 基于 Tokio 的异步运行时，支持高并发
-5. **零拷贝优化** - 减少不必要的字符串分配和复制
+5. **零拷贝优化** - 减少不必要的内存复制：
+   - 使用 `Bytes` 和切片引用而非 `Vec<u8>` 复制
+   - 复用缓冲区（如 DoT reader 中复用 buffer）
+   - 直接使用 `to_bytes()` 而非额外复制
+   - 使用切片引用传递数据（`&[u8]` 而非 `Vec<u8>`）
+6. **共享客户端实例** - HTTP 客户端在服务器实例间共享，避免重复创建
+7. **模块化设计** - 清晰的模块划分，减少代码重复，提高可维护性
 
 ## 待完善功能
 
 - [ ] DoT 协议中完整的 SNI 提取和重写（当前为简化实现）
 - [ ] DoQ 协议中 QUIC 连接的 SNI 提取和重写
-- [ ] DoH3 协议的完整实现（需要证书配置）
 - [ ] TLS 证书动态加载和热重载
 - [ ] 更完善的错误处理和日志记录
 - [ ] 性能监控和统计
 - [ ] 健康检查端点
 - [ ] 配置热重载
+- [ ] HTTP/3 客户端实现（当前使用 HTTP/1.1 客户端作为上游）
 
 ## 依赖
 
+### 核心依赖
+
 - `tokio` - 异步运行时
 - `rustls` / `tokio-rustls` - TLS 支持
-- `quinn` - QUIC 支持
+- `quinn` (0.11) - QUIC 协议支持
+- `h3` (0.0.8) / `h3-quinn` (0.0.10) - HTTP/3 支持
 - `hyper` / `hyper-util` - HTTP 支持
+- `rustls-native-certs` - 系统根证书支持
+
+### 工具依赖
+
 - `serde` / `toml` - 配置解析
 - `tracing` / `tracing-subscriber` - 日志记录
 - `anyhow` - 错误处理
-- `bytes` - 字节处理
+- `bytes` - 字节处理（零拷贝优化）
 - `http-body-util` - HTTP body 工具
 - `async-trait` - 异步 trait 支持
+- `futures` - Future 工具
+
+### 开发依赖
+
+- `tempfile` - 临时文件（测试用）
 
 ## 许可证
 

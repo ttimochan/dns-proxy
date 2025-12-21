@@ -153,14 +153,6 @@ impl AppConfig {
             })
     }
 
-    /// Get upstream URL for DoH
-    pub fn doh_upstream(&self) -> &str {
-        self.upstream
-            .doh
-            .as_deref()
-            .unwrap_or("https://dns.google/dns-query")
-    }
-
     /// Get upstream address for DoQ
     pub fn doq_upstream(&self) -> SocketAddr {
         self.upstream
@@ -173,14 +165,6 @@ impl AppConfig {
                     .parse()
                     .expect("Hardcoded upstream address should be valid")
             })
-    }
-
-    /// Get upstream URL for DoH3
-    pub fn doh3_upstream(&self) -> &str {
-        self.upstream
-            .doh3
-            .as_deref()
-            .unwrap_or("https://dns.google/dns-query")
     }
 }
 

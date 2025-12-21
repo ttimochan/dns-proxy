@@ -1,10 +1,13 @@
 mod app;
 mod config;
+mod proxy;
+mod quic;
 mod readers;
 mod rewrite;
 mod rewriters;
 mod sni;
 mod tls_utils;
+mod upstream;
 
 use anyhow::Result;
 use tracing::info;
