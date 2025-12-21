@@ -174,6 +174,14 @@ impl AppConfig {
                     .expect("Hardcoded upstream address should be valid")
             })
     }
+
+    /// Get upstream URL for DoH3
+    pub fn doh3_upstream(&self) -> &str {
+        self.upstream
+            .doh3
+            .as_deref()
+            .unwrap_or("https://dns.google/dns-query")
+    }
 }
 
 impl TlsConfig {
