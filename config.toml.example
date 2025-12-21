@@ -35,6 +35,13 @@ enabled = false
 bind_address = "0.0.0.0"
 port = 443
 
+# Healthcheck server - HTTP endpoint for health checks
+[servers.healthcheck]
+enabled = true
+bind_address = "0.0.0.0"
+port = 8080
+path = "/health"
+
 [upstream]
 # Default upstream server
 default = "8.8.8.8:853"

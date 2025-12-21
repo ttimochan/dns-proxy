@@ -29,6 +29,8 @@ pub struct ServersConfig {
     pub doh: ServerPortConfig,
     pub doq: ServerPortConfig,
     pub doh3: ServerPortConfig,
+    #[serde(default = "default_healthcheck_config")]
+    pub healthcheck: HealthcheckConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +38,23 @@ pub struct ServerPortConfig {
     pub enabled: bool,
     pub bind_address: String,
     pub port: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthcheckConfig {
+    pub enabled: bool,
+    pub bind_address: String,
+    pub port: u16,
+    pub path: String,
+}
+
+fn default_healthcheck_config() -> HealthcheckConfig {
+    HealthcheckConfig {
+        enabled: true,
+        bind_address: "0.0.0.0".to_string(),
+        port: 8080,
+        path: "/health".to_string(),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,6 +127,7 @@ impl Default for AppConfig {
                     bind_address: "0.0.0.0".to_string(),
                     port: 443,
                 },
+                healthcheck: default_healthcheck_config(),
             },
             upstream: UpstreamConfig {
                 default: "8.8.8.8:853".to_string(),

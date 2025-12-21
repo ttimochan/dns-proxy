@@ -19,6 +19,7 @@ impl App {
     pub fn start(&self) -> Result<()> {
         info!("Starting DNS Proxy Server...");
 
+        self.start_healthcheck_server();
         self.start_dot_server();
         self.start_doh_server();
         self.start_doq_server();
@@ -26,6 +27,27 @@ impl App {
 
         info!("All enabled servers started");
         Ok(())
+    }
+
+    fn start_healthcheck_server(&self) {
+        if !self.config.servers.healthcheck.enabled {
+            return;
+        }
+
+        use crate::readers::HealthcheckServer;
+        let config = Arc::clone(&self.config);
+        tokio::spawn(async move {
+            let server = HealthcheckServer::new(config);
+            if let Err(e) = server.start().await {
+                error!("Healthcheck server error: {}", e);
+            }
+        });
+        info!(
+            "Healthcheck server started on {}:{} at path {}",
+            self.config.servers.healthcheck.bind_address,
+            self.config.servers.healthcheck.port,
+            self.config.servers.healthcheck.path
+        );
     }
 
     fn start_dot_server(&self) {
