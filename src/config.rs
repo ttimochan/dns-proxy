@@ -66,7 +66,7 @@ pub struct UpstreamConfig {
     pub doh3: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TlsConfig {
     /// Default certificate configuration (used when no domain-specific cert is found)
     #[serde(default)]
@@ -88,15 +88,6 @@ pub struct CertificateConfig {
     /// Whether to require client certificate
     #[serde(default)]
     pub require_client_cert: bool,
-}
-
-impl Default for TlsConfig {
-    fn default() -> Self {
-        Self {
-            default: None,
-            certs: std::collections::HashMap::new(),
-        }
-    }
 }
 
 impl Default for AppConfig {
@@ -164,7 +155,7 @@ impl AppConfig {
         self.upstream
             .dot
             .as_deref()
-            .or_else(|| Some(self.upstream.default.as_str()))
+            .or(Some(self.upstream.default.as_str()))
             .and_then(|s| s.parse().ok())
             .unwrap_or_else(|| {
                 "8.8.8.8:853"
@@ -178,7 +169,7 @@ impl AppConfig {
         self.upstream
             .doq
             .as_deref()
-            .or_else(|| Some(self.upstream.default.as_str()))
+            .or(Some(self.upstream.default.as_str()))
             .and_then(|s| s.parse().ok())
             .unwrap_or_else(|| {
                 "8.8.8.8:853"

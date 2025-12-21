@@ -53,14 +53,11 @@ impl DoHServer {
                             let rewriter = Arc::clone(&rewriter);
                             let client = Arc::clone(&client);
                             async move {
-                                handle_http_request(req, rewriter, &*client)
+                                handle_http_request(req, rewriter, &client)
                                     .await
                                     .map_err(|e| {
                                         error!("DoH handler error from {}: {}", addr, e);
-                                        std::io::Error::new(
-                                            std::io::ErrorKind::Other,
-                                            e.to_string(),
-                                        )
+                                        std::io::Error::other(e.to_string())
                                     })
                             }
                         });

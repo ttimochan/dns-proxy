@@ -47,7 +47,6 @@ impl DoTServer {
                     info!("New DoT connection from {}", addr);
                     let acceptor = acceptor.clone();
                     let rewriter = Arc::clone(&rewriter);
-                    let upstream = upstream;
                     tokio::spawn(async move {
                         match acceptor.accept(stream).await {
                             Ok(tls_stream) => {

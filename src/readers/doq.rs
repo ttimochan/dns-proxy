@@ -35,32 +35,23 @@ impl DoQServer {
         let upstream = self.config.doq_upstream();
         let rewriter = Arc::clone(&self.rewriter);
 
-        loop {
-            match endpoint.accept().await {
-                Some(conn) => {
-                    let rewriter = Arc::clone(&rewriter);
-                    let upstream = upstream;
-                    tokio::spawn(async move {
-                        match conn.await {
-                            Ok(connection) => {
-                                info!("New DoQ connection from {}", connection.remote_address());
-                                if let Err(e) =
-                                    Self::handle_connection(connection, upstream, rewriter).await
-                                {
-                                    error!("DoQ connection error: {}", e);
-                                }
-                            }
-                            Err(e) => {
-                                error!("DoQ connection error: {}", e);
-                            }
+        while let Some(conn) = endpoint.accept().await {
+            let rewriter = Arc::clone(&rewriter);
+            tokio::spawn(async move {
+                match conn.await {
+                    Ok(connection) => {
+                        info!("New DoQ connection from {}", connection.remote_address());
+                        if let Err(e) =
+                            Self::handle_connection(connection, upstream, rewriter).await
+                        {
+                            error!("DoQ connection error: {}", e);
                         }
-                    });
+                    }
+                    Err(e) => {
+                        error!("DoQ connection error: {}", e);
+                    }
                 }
-                None => {
-                    // Endpoint closed
-                    break;
-                }
-            }
+            });
         }
 
         Ok(())

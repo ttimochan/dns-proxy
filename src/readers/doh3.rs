@@ -44,32 +44,23 @@ impl DoH3Server {
         let rewriter = Arc::clone(&self.rewriter);
         let client = Arc::new(self.client.clone());
 
-        loop {
-            match endpoint.accept().await {
-                Some(conn) => {
-                    let rewriter = Arc::clone(&rewriter);
-                    let client = Arc::clone(&client);
-                    tokio::spawn(async move {
-                        match conn.await {
-                            Ok(connection) => {
-                                info!("New DoH3 connection from {}", connection.remote_address());
-                                if let Err(e) =
-                                    Self::handle_connection(connection, rewriter, &*client).await
-                                {
-                                    error!("DoH3 connection error: {}", e);
-                                }
-                            }
-                            Err(e) => {
-                                error!("DoH3 connection error: {}", e);
-                            }
+        while let Some(conn) = endpoint.accept().await {
+            let rewriter = Arc::clone(&rewriter);
+            let client = Arc::clone(&client);
+            tokio::spawn(async move {
+                match conn.await {
+                    Ok(connection) => {
+                        info!("New DoH3 connection from {}", connection.remote_address());
+                        if let Err(e) = Self::handle_connection(connection, rewriter, &client).await
+                        {
+                            error!("DoH3 connection error: {}", e);
                         }
-                    });
+                    }
+                    Err(e) => {
+                        error!("DoH3 connection error: {}", e);
+                    }
                 }
-                None => {
-                    // Endpoint closed
-                    break;
-                }
-            }
+            });
         }
 
         Ok(())
@@ -97,7 +88,7 @@ impl DoH3Server {
                         match resolver.resolve_request().await {
                             Ok((req, stream)) => {
                                 if let Err(e) =
-                                    Self::handle_request(req, stream, rewriter, &*client).await
+                                    Self::handle_request(req, stream, rewriter, &client).await
                                 {
                                     error!("DoH3 request error: {}", e);
                                 }

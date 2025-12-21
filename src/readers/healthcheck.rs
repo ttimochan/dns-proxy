@@ -51,7 +51,7 @@ impl HealthcheckServer {
                             async move {
                                 handle_healthcheck(req, &path).await.map_err(|e| {
                                     error!("Healthcheck handler error from {}: {}", addr, e);
-                                    std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+                                    std::io::Error::other(e.to_string())
                                 })
                             }
                         });

@@ -20,12 +20,13 @@ impl BaseSniRewriter {
 
     pub fn extract_prefix(&self, sni: &str) -> Option<String> {
         for base_domain in &self.config.base_domains {
-            if let Some(rest) = sni.strip_suffix(base_domain) {
-                if !rest.is_empty() && rest.ends_with('.') {
-                    let prefix = rest.strip_suffix('.').unwrap_or(rest);
-                    if !prefix.is_empty() {
-                        return Some(prefix.to_string());
-                    }
+            if let Some(rest) = sni.strip_suffix(base_domain)
+                && !rest.is_empty()
+                && rest.ends_with('.')
+            {
+                let prefix = rest.strip_suffix('.').unwrap_or(rest);
+                if !prefix.is_empty() {
+                    return Some(prefix.to_string());
                 }
             }
         }
