@@ -1,5 +1,6 @@
 pub mod app;
 pub mod config;
+pub mod metrics;
 pub mod proxy;
 pub mod quic;
 pub mod readers;
@@ -8,6 +9,7 @@ pub mod rewriters;
 pub mod sni;
 pub mod tls_utils;
 pub mod upstream;
+pub mod utils;
 
 // Re-export commonly used types for convenience
 pub use config::{AppConfig, RewriteConfig, ServersConfig, UpstreamConfig};

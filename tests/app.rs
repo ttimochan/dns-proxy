@@ -16,8 +16,9 @@ async fn test_app_start_with_all_disabled() {
     config.servers.doh.enabled = false;
     config.servers.doq.enabled = false;
     config.servers.doh3.enabled = false;
+    config.servers.healthcheck.enabled = false;
 
-    let app = App::new(config);
+    let mut app = App::new(config);
     let result = app.start();
     assert!(result.is_ok());
 }
@@ -29,8 +30,9 @@ async fn test_app_start_with_some_enabled() {
     config.servers.doh.enabled = false;
     config.servers.doq.enabled = false;
     config.servers.doh3.enabled = false;
+    config.servers.healthcheck.enabled = false;
 
-    let app = App::new(config);
+    let mut app = App::new(config);
     let result = app.start();
     assert!(result.is_ok());
 }

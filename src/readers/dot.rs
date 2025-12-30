@@ -1,6 +1,8 @@
 use crate::config::AppConfig;
+use crate::metrics::{Metrics, Timer};
 use crate::rewrite::SniRewriterType;
 use crate::tls_utils;
+use crate::utils::BackoffCounter;
 use anyhow::{Context, Result};
 use rustls::ServerName;
 use std::sync::Arc;
@@ -12,11 +14,18 @@ use tracing::{error, info};
 pub struct DoTServer {
     config: Arc<AppConfig>,
     rewriter: SniRewriterType,
+    backoff: Arc<BackoffCounter>,
+    metrics: Arc<Metrics>,
 }
 
 impl DoTServer {
-    pub fn new(config: Arc<AppConfig>, rewriter: SniRewriterType) -> Self {
-        Self { config, rewriter }
+    pub fn new(config: Arc<AppConfig>, rewriter: SniRewriterType, metrics: Arc<Metrics>) -> Self {
+        Self {
+            config,
+            rewriter,
+            backoff: Arc::new(BackoffCounter::new()),
+            metrics,
+        }
     }
 
     pub async fn start(&self) -> Result<()> {
@@ -38,7 +47,11 @@ impl DoTServer {
 
         info!("DoT server listening on TCP {}", bind_addr);
 
-        let upstream = self.config.dot_upstream();
+        let upstream = self
+            .config
+            .dot_upstream()
+            .context("Failed to get DoT upstream address")?;
+        let upstream_hostname = self.config.dot_upstream_hostname();
         let rewriter = Arc::clone(&self.rewriter);
 
         loop {
@@ -48,14 +61,22 @@ impl DoTServer {
                     let acceptor = acceptor.clone();
                     let rewriter = Arc::clone(&rewriter);
                     let upstream_addr = upstream;
+                    let upstream_host = upstream_hostname.clone();
+                    let metrics = Arc::clone(&self.metrics);
                     tokio::spawn(async move {
                         match acceptor.accept(stream).await {
                             Ok(tls_stream) => {
-                                if let Err(e) =
-                                    Self::handle_connection(tls_stream, rewriter, upstream_addr)
-                                        .await
+                                if let Err(e) = Self::handle_connection(
+                                    tls_stream,
+                                    rewriter,
+                                    upstream_addr,
+                                    &upstream_host,
+                                    &metrics,
+                                )
+                                .await
                                 {
                                     error!("DoT connection handling error from {}: {}", addr, e);
+                                    metrics.record_upstream_error();
                                 } else {
                                     tracing::debug!(
                                         "DoT connection from {} completed successfully",
@@ -71,8 +92,9 @@ impl DoTServer {
                 }
                 Err(e) => {
                     error!("DoT accept error on {}: {}", bind_addr, e);
-                    // Add a small delay to prevent tight error loop
-                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    // Use exponential backoff to prevent tight error loop
+                    let delay = self.backoff.next_delay(100, 5000);
+                    tokio::time::sleep(delay).await;
                 }
             }
         }
@@ -82,10 +104,13 @@ impl DoTServer {
         stream: tokio_rustls::server::TlsStream<TcpStream>,
         _rewriter: SniRewriterType,
         upstream: std::net::SocketAddr,
+        upstream_hostname: &str,
+        metrics: &Metrics,
     ) -> Result<()> {
         use anyhow::Context;
         use tracing::debug;
 
+        let timer = Timer::start();
         let (mut reader, mut writer) = tokio::io::split(stream);
 
         // Read DNS message from client (zerocopy: use Bytes directly)
@@ -100,10 +125,11 @@ impl DoTServer {
             return Ok(());
         }
 
+        let bytes_received = buffer.len() as u64;
+
         debug!(
-            "Received DNS message: {} bytes, forwarding to upstream {}",
-            buffer.len(),
-            upstream
+            "Received DNS message: {} bytes, forwarding to upstream {} (SNI: {})",
+            bytes_received, upstream, upstream_hostname
         );
 
         // Connect to upstream
@@ -114,8 +140,12 @@ impl DoTServer {
         let client_config =
             create_client_config().context("Failed to create TLS client configuration")?;
         let connector = TlsConnector::from(Arc::new(client_config));
-        let sni_name = ServerName::try_from("dns.google")
-            .context("Failed to create ServerName for upstream connection")?;
+        let sni_name = ServerName::try_from(upstream_hostname).with_context(|| {
+            format!(
+                "Failed to create ServerName for upstream connection: {}",
+                upstream_hostname
+            )
+        })?;
 
         let upstream_tls = connector
             .connect(sni_name, upstream_stream)
@@ -147,6 +177,7 @@ impl DoTServer {
         );
 
         // Send response back (zerocopy: use slice reference)
+        let bytes_sent = buffer.len() as u64;
         writer
             .write_all(&buffer)
             .await
@@ -156,13 +187,34 @@ impl DoTServer {
             .await
             .context("Failed to flush DNS response to client")?;
 
+        // Record metrics
+        let duration = timer.elapsed();
+        metrics.record_request(true, bytes_received, bytes_sent, duration);
+
         Ok(())
     }
 }
 
+/// Create TLS client configuration for upstream connections
+/// Uses system root certificates for proper TLS verification
 fn create_client_config() -> Result<rustls::ClientConfig> {
+    let mut root_store = rustls::RootCertStore::empty();
+
+    // Load system root certificates
+    let certs = rustls_native_certs::load_native_certs()
+        .context("Failed to load system root certificates")?;
+
+    for cert in certs {
+        // rustls_native_certs::Certificate contains Vec<u8> in .0 field
+        // rustls::Certificate accepts Vec<u8>
+        let rustls_cert = rustls::Certificate(cert.0);
+        root_store
+            .add(&rustls_cert)
+            .map_err(|e| anyhow::anyhow!("Failed to add root certificate: {}", e))?;
+    }
+
     Ok(rustls::ClientConfig::builder()
         .with_safe_defaults()
-        .with_root_certificates(rustls::RootCertStore::empty())
+        .with_root_certificates(root_store)
         .with_no_client_auth())
 }

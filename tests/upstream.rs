@@ -38,7 +38,7 @@ async fn test_forward_http_request_invalid_uri() {
 
     // Should return an error or error response (BAD_GATEWAY)
     match result {
-        Ok(resp) => {
+        Ok((resp, _)) => {
             // If it succeeds, it should be an error response
             assert!(resp.status().is_client_error() || resp.status().is_server_error());
         }

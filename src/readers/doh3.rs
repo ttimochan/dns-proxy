@@ -1,4 +1,5 @@
 use crate::config::AppConfig;
+use crate::metrics::{Metrics, Timer};
 use crate::quic::create_quic_server_endpoint;
 use crate::rewrite::SniRewriterType;
 use crate::sni::SniRewriter;
@@ -15,14 +16,16 @@ pub struct DoH3Server {
     config: Arc<AppConfig>,
     rewriter: SniRewriterType,
     client: HttpClient,
+    metrics: Arc<Metrics>,
 }
 
 impl DoH3Server {
-    pub fn new(config: Arc<AppConfig>, rewriter: SniRewriterType) -> Self {
+    pub fn new(config: Arc<AppConfig>, rewriter: SniRewriterType, metrics: Arc<Metrics>) -> Self {
         Self {
             config,
             rewriter,
             client: create_http_client(),
+            metrics,
         }
     }
 
@@ -43,18 +46,23 @@ impl DoH3Server {
 
         let rewriter = Arc::clone(&self.rewriter);
         let client = Arc::new(self.client.clone());
+        let metrics = Arc::clone(&self.metrics);
 
         while let Some(conn) = endpoint.accept().await {
             let rewriter = Arc::clone(&rewriter);
             let client = Arc::clone(&client);
+            let metrics = Arc::clone(&metrics);
             tokio::spawn(async move {
                 match conn.await {
                     Ok(connection) => {
                         let remote_addr = connection.remote_address();
                         info!("New DoH3 connection from {}", remote_addr);
-                        if let Err(e) = Self::handle_connection(connection, rewriter, &client).await
+                        let metrics_clone = Arc::clone(&metrics);
+                        if let Err(e) =
+                            Self::handle_connection(connection, rewriter, &client, metrics).await
                         {
                             error!("DoH3 connection handling error from {}: {}", remote_addr, e);
+                            metrics_clone.record_upstream_error();
                         } else {
                             debug!(
                                 "DoH3 connection from {} completed successfully",
@@ -76,6 +84,7 @@ impl DoH3Server {
         connection: quinn::Connection,
         rewriter: SniRewriterType,
         client: &HttpClient,
+        metrics: Arc<Metrics>,
     ) -> Result<()> {
         // Create H3 connection from quinn connection
         let mut conn = H3ServerConnection::new(h3_quinn::Connection::new(connection))
@@ -89,12 +98,14 @@ impl DoH3Server {
                 Ok(Some(resolver)) => {
                     let rewriter = Arc::clone(&rewriter);
                     let client = Arc::clone(&client);
+                    let metrics = Arc::clone(&metrics);
                     tokio::spawn(async move {
                         // Resolve the request
                         match resolver.resolve_request().await {
                             Ok((req, stream)) => {
                                 if let Err(e) =
-                                    Self::handle_request(req, stream, rewriter, &client).await
+                                    Self::handle_request(req, stream, rewriter, &client, &metrics)
+                                        .await
                                 {
                                     error!("DoH3 request handling error: {}", e);
                                 } else {
@@ -127,7 +138,9 @@ impl DoH3Server {
         mut stream: h3::server::RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>,
         rewriter: SniRewriterType,
         client: &HttpClient,
+        metrics: &Arc<Metrics>,
     ) -> Result<()> {
+        let timer = Timer::start();
         let method = req.method().clone();
         let uri = req.uri().clone();
         info!("New DoH3 request: {} {}", method, uri);
@@ -157,6 +170,9 @@ impl DoH3Server {
                 )
             })
             .context("SNI rewrite operation failed for DoH3 request")?;
+
+        // Record SNI rewrite
+        metrics.record_sni_rewrite();
 
         info!(
             "DoH3 request: {} {} -> SNI rewrite: {} -> {} -> Target: {}",
@@ -204,8 +220,10 @@ impl DoH3Server {
             Bytes::new()
         };
 
+        let bytes_received = body.len() as u64;
+
         // Forward request to upstream
-        let response = forward_http_request(
+        let result = forward_http_request(
             client,
             &upstream_uri,
             &rewrite_result.target_hostname,
@@ -213,13 +231,27 @@ impl DoH3Server {
             req.headers(),
             body,
         )
-        .await
-        .with_context(|| {
-            format!(
-                "Failed to forward DoH3 request to upstream: {}",
-                upstream_uri
-            )
-        })?;
+        .await;
+
+        let duration = timer.elapsed();
+
+        let response = match result {
+            Ok((resp, bytes_sent)) => {
+                metrics.record_request(true, bytes_received, bytes_sent, duration);
+                resp
+            }
+            Err(e) => {
+                debug!("DoH3 upstream request failed: {}", e);
+                metrics.record_request(false, bytes_received, 0, duration);
+                metrics.record_upstream_error();
+                return Err(e).with_context(|| {
+                    format!(
+                        "Failed to forward DoH3 request to upstream: {}",
+                        upstream_uri
+                    )
+                });
+            }
+        };
 
         debug!("Received response from upstream, sending to DoH3 client");
 

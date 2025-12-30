@@ -1,6 +1,7 @@
 mod app;
 mod config;
 mod logging;
+mod metrics;
 mod proxy;
 mod quic;
 mod readers;
@@ -9,6 +10,7 @@ mod rewriters;
 mod sni;
 mod tls_utils;
 mod upstream;
+mod utils;
 
 use anyhow::{Context, Result};
 use tracing::info;
@@ -17,6 +19,11 @@ use tracing::info;
 async fn main() -> Result<()> {
     // Load config first (before logging init) to get logging config
     let config = config::AppConfig::load_or_default("config.toml");
+
+    // Validate configuration before starting
+    config
+        .validate()
+        .context("Configuration validation failed")?;
 
     // Initialize logging system
     let _guard =
@@ -29,7 +36,7 @@ async fn main() -> Result<()> {
     );
 
     // Create and start app
-    let app = app::App::new(config);
+    let mut app = app::App::new(config);
     app.start().context("Failed to start DNS Proxy Server")?;
 
     info!("DNS Proxy Server started successfully. Press Ctrl+C to shutdown.");
@@ -40,6 +47,7 @@ async fn main() -> Result<()> {
         .context("Failed to listen for shutdown signal")?;
 
     info!("Shutdown signal received, shutting down gracefully...");
+    app.wait_for_shutdown().await;
 
     Ok(())
 }

@@ -109,10 +109,10 @@ fn test_tls_config_get_cert_or_err() {
 fn test_upstream_config() {
     let config = AppConfig::default();
 
-    let dot_upstream = config.dot_upstream();
+    let dot_upstream = config.dot_upstream().unwrap();
     assert_eq!(dot_upstream.port(), 853);
 
-    let doq_upstream = config.doq_upstream();
+    let doq_upstream = config.doq_upstream().unwrap();
     assert_eq!(doq_upstream.port(), 853);
 }
 

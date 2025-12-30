@@ -18,89 +18,23 @@
 
 ### 整体架构
 
-```
-┌─────────────┐
-│   Client    │
-└──────┬──────┘
-       │ DNS Query (SNI: www.example.org)
-       ▼
-┌─────────────────────────────────────┐
-│      DNS Proxy Server               │
-│  ┌───────────────────────────────┐  │
-│  │  Protocol Readers             │  │
-│  │  - DoH (TCP 443)              │  │
-│  │  - DoT (TCP 853)              │  │
-│  │  - DoQ (UDP 853)              │  │
-│  │  - DoH3 (UDP 443)             │  │
-│  └───────────┬───────────────────┘  │
-│              │                        │
-│  ┌───────────▼───────────────────┐  │
-│  │  SNI Extractor                 │  │
-│  │  - DoH: Host header            │  │
-│  │  - DoT: TLS handshake          │  │
-│  └───────────┬───────────────────┘  │
-│              │                        │
-│  ┌───────────▼───────────────────┐  │
-│  │  SNI Rewriter                  │  │
-│  │  www.example.org                │  │
-│  │    → extract "www"              │  │
-│  │    → build "www.example.cn"    │  │
-│  └───────────┬───────────────────┘  │
-│              │                        │
-│  ┌───────────▼───────────────────┐  │
-│  │  Certificate Resolver           │  │
-│  │  - Select cert by SNI           │  │
-│  │  - Cache certificates           │  │
-│  └───────────┬───────────────────┘  │
-└──────────────┼───────────────────────┘
-               │ Forward to upstream
-               ▼
-┌─────────────────────────────────────┐
-│   Upstream DNS Server                │
-│   (www.example.cn)                   │
-└─────────────────────────────────────┘
-```
+DNS Proxy Server 接收来自客户端的 DNS 查询请求，通过 Protocol Readers（DoH、DoT、DoQ、DoH3）处理不同协议的请求。系统从请求中提取 SNI（Server Name Indication），通过 SNI Rewriter 进行域名重写，然后使用 Certificate Resolver 根据 SNI 动态选择 TLS 证书，最后将请求转发到上游 DNS 服务器。
 
 ### 工作流程详解
 
 #### 1. 启动阶段
 
-```
-main.rs
-  └─> 加载配置 (config.toml 或默认值)
-      └─> 创建 App 实例
-          └─> 创建 SNI Rewriter
-              └─> 启动各个协议的服务器（并行）
-                  ├─> DoT Server (TCP 853)
-                  ├─> DoH Server (TCP 443)
-                  ├─> DoQ Server (UDP 853)
-                  └─> DoH3 Server (UDP 443)
-```
+程序从 `main.rs` 开始，首先加载配置文件（`config.toml` 或使用默认值），然后创建 `App` 实例，初始化 SNI Rewriter，最后并行启动各个协议的服务器（DoT Server、DoH Server、DoQ Server、DoH3 Server）。
 
 #### 2. 请求处理流程（以 DoH 为例）
 
-```
-1. 客户端请求
-   └─> GET/POST https://www.example.org/dns-query
-       └─> Host: www.example.org
+1. **客户端请求**：客户端发送 GET/POST 请求到 `https://www.example.org/dns-query`，请求头包含 `Host: www.example.org`
 
-2. DoH Server 接收
-   └─> 提取 Host header → SNI: "www.example.org"
-       └─> 调用 SNI Rewriter
+2. **DoH Server 接收**：服务器从 Host header 中提取 SNI 信息（"www.example.org"），然后调用 SNI Rewriter
 
-3. SNI Rewriter 处理
-   └─> 匹配基准域名: ["example.com", "example.org"]
-       └─> 找到匹配: "example.org"
-           └─> 提取前缀: "www"
-               └─> 构建目标: "www.example.cn"
-                   └─> 缓存映射关系
+3. **SNI Rewriter 处理**：重写器匹配基准域名列表（如 `["example.com", "example.org"]`），找到匹配项后提取前缀（"www"），构建目标主机名（"www.example.cn"），并缓存映射关系
 
-4. 转发请求
-   └─> 构建上游 URI: https://www.example.cn/dns-query
-       └─> 复制请求头（更新 Host）
-           └─> 转发到上游服务器
-               └─> 返回响应给客户端
-```
+4. **转发请求**：构建上游 URI（`https://www.example.cn/dns-query`），复制并更新请求头中的 Host，转发到上游服务器，最后将响应返回给客户端
 
 #### 3. SNI 重写逻辑
 
@@ -137,19 +71,7 @@ main.rs
 
 #### 4. TLS 证书选择
 
-```
-TLS 握手请求 (SNI: www.example.org)
-  └─> CertificateResolver.resolve()
-      ├─> 检查缓存
-      │   └─> 命中 → 返回缓存的证书
-      └─> 未命中
-          └─> 查找证书配置
-              ├─> 查找 tls.certs["www.example.org"] → 未找到
-              ├─> 查找 tls.certs["example.org"] → 未找到
-              └─> 回退到 tls.default → 找到
-                  └─> 加载证书文件
-                      └─> 缓存并返回
-```
+当收到 TLS 握手请求（SNI: www.example.org）时，`CertificateResolver.resolve()` 首先检查证书缓存。如果缓存命中，直接返回缓存的证书。如果未命中，则查找证书配置：先查找精确匹配的 `tls.certs["www.example.org"]`，如果未找到则查找基准域名 `tls.certs["example.org"]`，如果仍未找到则回退到 `tls.default`。找到配置后加载证书文件，缓存并返回。
 
 **证书选择优先级：**
 

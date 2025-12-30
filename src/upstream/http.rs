@@ -16,6 +16,7 @@ pub fn create_http_client() -> HttpClient {
 }
 
 /// Forward HTTP request to upstream server
+/// Returns the response and the body size in bytes for metrics
 pub async fn forward_http_request(
     client: &HttpClient,
     upstream_uri: &str,
@@ -23,7 +24,7 @@ pub async fn forward_http_request(
     method: Method,
     headers: &hyper::HeaderMap,
     body: Bytes,
-) -> Result<Response<Full<Bytes>>> {
+) -> Result<(Response<Full<Bytes>>, u64)> {
     let mut req = Request::builder()
         .method(method.clone())
         .uri(upstream_uri)
@@ -73,18 +74,20 @@ pub async fn forward_http_request(
                 })?
                 .to_bytes();
 
-            debug!("Response body size: {} bytes", body_bytes.len());
+            let body_size = body_bytes.len() as u64;
+            debug!("Response body size: {} bytes", body_size);
 
             if !status.is_success() {
                 warn!(
                     "Upstream returned non-success status: {} {} (body: {} bytes)",
-                    status,
-                    upstream_uri,
-                    body_bytes.len()
+                    status, upstream_uri, body_size
                 );
             }
 
-            Ok(Response::from_parts(parts, Full::new(body_bytes)))
+            Ok((
+                Response::from_parts(parts, Full::new(body_bytes)),
+                body_size,
+            ))
         }
         Err(e) => {
             error!(
@@ -93,9 +96,13 @@ pub async fn forward_http_request(
             );
 
             // Return a proper error response instead of panicking
+            let error_msg = format!("Upstream error: {}", e);
+            let error_body = Full::new(error_msg.clone().into());
+            let error_size = error_msg.len() as u64;
             Response::builder()
                 .status(StatusCode::BAD_GATEWAY)
-                .body(Full::new(format!("Upstream error: {}", e).into()))
+                .body(error_body)
+                .map(|resp| (resp, error_size))
                 .with_context(|| {
                     format!(
                         "Failed to create error response for upstream failure: {}",

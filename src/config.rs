@@ -205,31 +205,152 @@ impl AppConfig {
     }
 
     /// Get upstream address for DoT
-    pub fn dot_upstream(&self) -> SocketAddr {
+    /// Returns the configured DoT upstream or default upstream as SocketAddr
+    pub fn dot_upstream(&self) -> Result<SocketAddr> {
         self.upstream
             .dot
             .as_deref()
             .or(Some(self.upstream.default.as_str()))
             .and_then(|s| s.parse().ok())
-            .unwrap_or_else(|| {
-                "8.8.8.8:853"
-                    .parse()
-                    .expect("Hardcoded upstream address should be valid")
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Invalid upstream address for DoT: {:?} or default: {}",
+                    self.upstream.dot,
+                    self.upstream.default
+                )
             })
     }
 
     /// Get upstream address for DoQ
-    pub fn doq_upstream(&self) -> SocketAddr {
+    /// Returns the configured DoQ upstream or default upstream as SocketAddr
+    pub fn doq_upstream(&self) -> Result<SocketAddr> {
         self.upstream
             .doq
             .as_deref()
             .or(Some(self.upstream.default.as_str()))
             .and_then(|s| s.parse().ok())
-            .unwrap_or_else(|| {
-                "8.8.8.8:853"
-                    .parse()
-                    .expect("Hardcoded upstream address should be valid")
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Invalid upstream address for DoQ: {:?} or default: {}",
+                    self.upstream.doq,
+                    self.upstream.default
+                )
             })
+    }
+
+    /// Get upstream hostname for DoT/DoQ (extracted from address or default)
+    /// This is used for SNI in TLS connections
+    pub fn dot_upstream_hostname(&self) -> String {
+        // Try to extract hostname from configured upstream
+        if let Some(addr) = &self.upstream.dot {
+            if let Ok(parsed) = addr.parse::<SocketAddr>() {
+                return parsed.ip().to_string();
+            }
+            // If not a SocketAddr, try to extract hostname from URL-like string
+            if let Some(host) = addr.split(':').next() {
+                return host.to_string();
+            }
+        }
+        // Fallback to default
+        if let Ok(parsed) = self.upstream.default.parse::<SocketAddr>() {
+            parsed.ip().to_string()
+        } else {
+            self.upstream
+                .default
+                .split(':')
+                .next()
+                .unwrap_or("dns.google")
+                .to_string()
+        }
+    }
+
+    /// Validate configuration before starting servers
+    pub fn validate(&self) -> Result<()> {
+        use std::collections::HashSet;
+
+        // Check for port conflicts
+        let mut ports = HashSet::new();
+
+        // Check standard server ports
+        let standard_servers: &[(&str, &ServerPortConfig)] = &[
+            ("dot", &self.servers.dot),
+            ("doh", &self.servers.doh),
+            ("doq", &self.servers.doq),
+            ("doh3", &self.servers.doh3),
+        ];
+
+        for (name, config) in standard_servers {
+            if config.enabled {
+                let addr = format!("{}:{}", config.bind_address, config.port);
+                if let Ok(socket_addr) = addr.parse::<SocketAddr>() {
+                    if !ports.insert((socket_addr.ip(), socket_addr.port())) {
+                        anyhow::bail!(
+                            "Port conflict: {} is already used by another server",
+                            socket_addr.port()
+                        );
+                    }
+                } else {
+                    anyhow::bail!("Invalid bind address for {}: {}", name, addr);
+                }
+            }
+        }
+
+        // Check healthcheck server port
+        if self.servers.healthcheck.enabled {
+            let addr = format!(
+                "{}:{}",
+                self.servers.healthcheck.bind_address, self.servers.healthcheck.port
+            );
+            if let Ok(socket_addr) = addr.parse::<SocketAddr>() {
+                if !ports.insert((socket_addr.ip(), socket_addr.port())) {
+                    anyhow::bail!(
+                        "Port conflict: {} is already used by another server",
+                        socket_addr.port()
+                    );
+                }
+            } else {
+                anyhow::bail!("Invalid bind address for healthcheck: {}", addr);
+            }
+        }
+
+        // Validate TLS certificate files exist
+        if let Some(default_cert) = &self.tls.default {
+            std::fs::metadata(&default_cert.cert_file).with_context(|| {
+                format!(
+                    "Default certificate file not found: {}",
+                    default_cert.cert_file
+                )
+            })?;
+            std::fs::metadata(&default_cert.key_file).with_context(|| {
+                format!("Default key file not found: {}", default_cert.key_file)
+            })?;
+        }
+
+        for (domain, cert_config) in &self.tls.certs {
+            std::fs::metadata(&cert_config.cert_file).with_context(|| {
+                format!(
+                    "Certificate file not found for {}: {}",
+                    domain, cert_config.cert_file
+                )
+            })?;
+            std::fs::metadata(&cert_config.key_file).with_context(|| {
+                format!(
+                    "Key file not found for {}: {}",
+                    domain, cert_config.key_file
+                )
+            })?;
+        }
+
+        // Validate rewrite configuration
+        if self.rewrite.base_domains.is_empty() {
+            anyhow::bail!("At least one base domain must be configured for SNI rewriting");
+        }
+
+        if !self.rewrite.target_suffix.starts_with('.') {
+            anyhow::bail!("Target suffix must start with '.' (e.g., '.example.cn')");
+        }
+
+        Ok(())
     }
 }
 
