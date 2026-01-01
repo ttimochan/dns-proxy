@@ -2,7 +2,8 @@ use crate::config::AppConfig;
 use crate::metrics::Metrics;
 use crate::proxy::handle_http_request;
 use crate::rewrite::SniRewriterType;
-use crate::upstream::create_http_client;
+use crate::upstream::create_connection_pool;
+use crate::upstream::pool::ConnectionPool;
 use crate::utils::BackoffCounter;
 use anyhow::{Context, Result};
 use hyper::server::conn::http1;
@@ -15,7 +16,7 @@ use tracing::{error, info};
 pub struct DoHServer {
     config: Arc<AppConfig>,
     rewriter: SniRewriterType,
-    client: crate::upstream::HttpClient,
+    pool: Arc<ConnectionPool>,
     backoff: Arc<BackoffCounter>,
     metrics: Arc<Metrics>,
 }
@@ -25,7 +26,7 @@ impl DoHServer {
         Self {
             config,
             rewriter,
-            client: create_http_client(),
+            pool: create_connection_pool(),
             backoff: Arc::new(BackoffCounter::new()),
             metrics,
         }
@@ -46,24 +47,24 @@ impl DoHServer {
         info!("DoH server listening on TCP {}", bind_addr);
 
         let rewriter = Arc::clone(&self.rewriter);
-        let client = Arc::new(self.client.clone());
+        let pool = Arc::clone(&self.pool);
         let metrics = Arc::clone(&self.metrics);
 
         loop {
             match listener.accept().await {
                 Ok((stream, addr)) => {
                     let rewriter = Arc::clone(&rewriter);
-                    let client = Arc::clone(&client);
+                    let pool = Arc::clone(&pool);
                     let metrics = Arc::clone(&metrics);
                     tokio::spawn(async move {
                         let io = TokioIo::new(stream);
                         let service = service_fn(move |req| {
                             let rewriter = Arc::clone(&rewriter);
-                            let client = Arc::clone(&client);
+                            let pool = Arc::clone(&pool);
                             let metrics = Arc::clone(&metrics);
                             let client_addr = addr;
                             async move {
-                                handle_http_request(req, rewriter, &client, metrics)
+                                handle_http_request(req, rewriter, &pool, metrics)
                                     .await
                                     .map_err(|e| {
                                         error!("DoH handler error from {}: {}", client_addr, e);

@@ -3,7 +3,8 @@ use crate::metrics::{Metrics, Timer};
 use crate::quic::create_quic_server_endpoint;
 use crate::rewrite::SniRewriterType;
 use crate::sni::SniRewriter;
-use crate::upstream::{HttpClient, create_http_client, forward_http_request};
+use crate::upstream::pool::ConnectionPool;
+use crate::upstream::{create_connection_pool, forward_http_request};
 use anyhow::{Context, Result};
 use bytes::{Buf, Bytes};
 use h3::server::Connection as H3ServerConnection;
@@ -15,7 +16,7 @@ use tracing::{debug, error, info};
 pub struct DoH3Server {
     config: Arc<AppConfig>,
     rewriter: SniRewriterType,
-    client: HttpClient,
+    pool: Arc<ConnectionPool>,
     metrics: Arc<Metrics>,
 }
 
@@ -24,7 +25,7 @@ impl DoH3Server {
         Self {
             config,
             rewriter,
-            client: create_http_client(),
+            pool: create_connection_pool(),
             metrics,
         }
     }
@@ -45,12 +46,12 @@ impl DoH3Server {
         info!("DoH3 server listening on UDP {}", addr);
 
         let rewriter = Arc::clone(&self.rewriter);
-        let client = Arc::new(self.client.clone());
+        let pool = Arc::clone(&self.pool);
         let metrics = Arc::clone(&self.metrics);
 
         while let Some(conn) = endpoint.accept().await {
             let rewriter = Arc::clone(&rewriter);
-            let client = Arc::clone(&client);
+            let pool = Arc::clone(&pool);
             let metrics = Arc::clone(&metrics);
             tokio::spawn(async move {
                 match conn.await {
@@ -59,7 +60,7 @@ impl DoH3Server {
                         info!("New DoH3 connection from {}", remote_addr);
                         let metrics_clone = Arc::clone(&metrics);
                         if let Err(e) =
-                            Self::handle_connection(connection, rewriter, &client, metrics).await
+                            Self::handle_connection(connection, rewriter, pool, metrics).await
                         {
                             error!("DoH3 connection handling error from {}: {}", remote_addr, e);
                             metrics_clone.record_upstream_error();
@@ -83,7 +84,7 @@ impl DoH3Server {
     async fn handle_connection(
         connection: quinn::Connection,
         rewriter: SniRewriterType,
-        client: &HttpClient,
+        pool: Arc<ConnectionPool>,
         metrics: Arc<Metrics>,
     ) -> Result<()> {
         // Create H3 connection from quinn connection
@@ -91,21 +92,18 @@ impl DoH3Server {
             .await
             .context("Failed to create H3 connection")?;
 
-        let client = Arc::new(client.clone());
-
         loop {
             match conn.accept().await {
                 Ok(Some(resolver)) => {
                     let rewriter = Arc::clone(&rewriter);
-                    let client = Arc::clone(&client);
+                    let pool = Arc::clone(&pool);
                     let metrics = Arc::clone(&metrics);
                     tokio::spawn(async move {
                         // Resolve the request
                         match resolver.resolve_request().await {
                             Ok((req, stream)) => {
                                 if let Err(e) =
-                                    Self::handle_request(req, stream, rewriter, &client, &metrics)
-                                        .await
+                                    Self::handle_request(req, stream, rewriter, pool, metrics).await
                                 {
                                     error!("DoH3 request handling error: {}", e);
                                 } else {
@@ -137,8 +135,8 @@ impl DoH3Server {
         req: hyper::Request<()>,
         mut stream: h3::server::RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>,
         rewriter: SniRewriterType,
-        client: &HttpClient,
-        metrics: &Arc<Metrics>,
+        pool: Arc<ConnectionPool>,
+        metrics: Arc<Metrics>,
     ) -> Result<()> {
         let timer = Timer::start();
         let method = req.method().clone();
@@ -222,9 +220,9 @@ impl DoH3Server {
 
         let bytes_received = body.len() as u64;
 
-        // Forward request to upstream
+        // Forward request to upstream using connection pool for connection reuse
         let result = forward_http_request(
-            client,
+            &pool,
             &upstream_uri,
             &rewrite_result.target_hostname,
             req.method().clone(),

@@ -1,7 +1,8 @@
 use crate::metrics::{Metrics, Timer};
 use crate::rewrite::SniRewriterType;
 use crate::sni::SniRewriter;
-use crate::upstream::http::{HttpClient, forward_http_request};
+use crate::upstream::http::forward_http_request;
+use crate::upstream::pool::ConnectionPool;
 use anyhow::{Context, Result};
 use bytes::Bytes;
 use http_body_util::BodyExt;
@@ -14,7 +15,7 @@ use tracing::{debug, info};
 pub async fn handle_http_request(
     req: Request<Incoming>,
     rewriter: SniRewriterType,
-    client: &HttpClient,
+    pool: &ConnectionPool,
     metrics: Arc<Metrics>,
 ) -> Result<Response<http_body_util::Full<hyper::body::Bytes>>> {
     let timer = Timer::start();
@@ -91,9 +92,9 @@ pub async fn handle_http_request(
 
     let bytes_received = body.len() as u64;
 
-    // Forward request
+    // Forward request using connection pool for connection reuse
     let result = forward_http_request(
-        client,
+        pool,
         &upstream_uri,
         &rewrite_result.target_hostname,
         method,

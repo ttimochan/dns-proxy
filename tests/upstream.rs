@@ -1,33 +1,33 @@
-use dns_proxy::upstream::{HttpClient, create_http_client};
+use dns_proxy::upstream::pool::{ConnectionPool, HttpClient};
+use dns_proxy::upstream::{create_connection_pool, forward_http_request};
 
 #[test]
-fn test_create_http_client() {
-    let _client = create_http_client();
-    // Verify client is created successfully
-    assert!(std::any::type_name::<HttpClient>().contains("Client"));
+fn test_create_connection_pool() {
+    let _pool = create_connection_pool();
 }
 
 #[test]
 fn test_upstream_module_imports() {
     // Test that upstream module exports are accessible
     // Verify the module structure exists
-    let _client: HttpClient = create_http_client();
+    let pool = create_connection_pool();
+    let _client = pool.get_client("example.com");
     assert!(std::any::type_name::<HttpClient>().contains("Client"));
+    assert!(std::any::type_name::<ConnectionPool>().contains("ConnectionPool"));
 }
 
 #[tokio::test]
 async fn test_forward_http_request_invalid_uri() {
     use bytes::Bytes;
-    use dns_proxy::upstream::forward_http_request;
     use hyper::HeaderMap;
     use hyper::Method;
 
-    let client = create_http_client();
+    let pool = create_connection_pool();
     let headers = HeaderMap::new();
 
     // Test with invalid URI - should handle gracefully
     let result = forward_http_request(
-        &client,
+        &pool,
         "not-a-valid-uri",
         "example.com",
         Method::GET,

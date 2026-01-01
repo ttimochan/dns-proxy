@@ -1,34 +1,37 @@
+use crate::upstream::pool::ConnectionPool;
 use anyhow::{Context, Result};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::{Method, Request, Response, StatusCode};
-use hyper_util::client::legacy::Client;
-use hyper_util::client::legacy::connect::HttpConnector;
-use hyper_util::rt::TokioExecutor;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, warn};
 
 /// Default timeout for upstream requests (30 seconds)
 const DEFAULT_UPSTREAM_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Shared HTTP client for upstream requests
-pub type HttpClient = Client<HttpConnector, Full<Bytes>>;
-
-/// Create a new HTTP client instance
-pub fn create_http_client() -> HttpClient {
-    Client::builder(TokioExecutor::new()).build_http()
+/// Create a new connection pool instance
+/// This is a convenience function that creates a pool with default settings
+pub fn create_connection_pool() -> Arc<ConnectionPool> {
+    Arc::new(ConnectionPool::new())
 }
 
 /// Forward HTTP request to upstream server with timeout control
 /// Returns the response and the body size in bytes for metrics
+///
+/// This function uses a connection pool to reuse connections for the same SNI,
+/// enabling keepalive and avoiding repeated TLS handshakes.
 pub async fn forward_http_request(
-    client: &HttpClient,
+    pool: &ConnectionPool,
     upstream_uri: &str,
     target_hostname: &str,
     method: Method,
     headers: &hyper::HeaderMap,
     body: Bytes,
 ) -> Result<(Response<Full<Bytes>>, u64)> {
+    // Get or create a client for this SNI (target_hostname)
+    // This ensures connection reuse for the same target
+    let client = pool.get_client(target_hostname);
     let mut req = Request::builder()
         .method(method.clone())
         .uri(upstream_uri)
@@ -59,11 +62,12 @@ pub async fn forward_http_request(
     );
 
     debug!(
-        "Sending {} request to upstream: {} (Host: {})",
-        method, upstream_uri, target_hostname
+        "Sending {} request to upstream: {} (Host: {}, SNI: {})",
+        method, upstream_uri, target_hostname, target_hostname
     );
 
     // Add timeout control to prevent hanging requests
+    // The client from the pool will reuse existing connections when possible
     let request_future = client.request(req);
     let timeout_future = tokio::time::timeout(DEFAULT_UPSTREAM_TIMEOUT, request_future);
 
