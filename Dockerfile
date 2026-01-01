@@ -1,4 +1,4 @@
-FROM debian:bookworm-slim AS builder
+FROM debian:trixie-slim AS builder
 
 RUN apt-get update && apt-get install -y \
     curl \
@@ -19,16 +19,10 @@ WORKDIR /app
 
 COPY . .
 
-RUN cargo build --release
+RUN cargo build --release \
+    && upx --best --lzma ./target/release/dns-proxy
 
-RUN echo "=== Original binary size ===" && \
-    ls -lh /app/target/release/dns-proxy && \
-    echo "=== Compressing with UPX ===" && \
-    upx --best /app/target/release/dns-proxy && \
-    echo "=== Compressed binary size ===" && \
-    ls -lh /app/target/release/dns-proxy
-
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 RUN apt-get update && apt-get install -y \
     ca-certificates \
