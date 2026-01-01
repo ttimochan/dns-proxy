@@ -1,48 +1,78 @@
-# x86_64 GNU
+[term]
+verbose = false
+color = "auto"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+debug = 0
+incremental = false
+
+# -----------------------
+# Linux x86_64 (GNU)
+# -----------------------
 [target.x86_64-unknown-linux-gnu]
 rustflags = [
-    "-C", "target-cpu=x86-64-v2",  
+    "-C", "target-cpu=x86-64-v2",
+
+    # Use lld
     "-C", "link-arg=-fuse-ld=lld",
+    # Linker optimizations (ELF)
+    "-C", "link-arg=-Wl,-O3",
+    "-C", "link-arg=-Wl,--gc-sections",
+    "-C", "link-arg=-Wl,--as-needed",
 ]
 
-# aarch64 GNU
+# -----------------------
+# Linux aarch64 (GNU)
+# -----------------------
 [target.aarch64-unknown-linux-gnu]
 rustflags = [
     "-C", "target-cpu=generic",
     "-C", "link-arg=-fuse-ld=lld",
+    "-C", "link-arg=-Wl,-O3",
+    "-C", "link-arg=-Wl,--gc-sections",
+    "-C", "link-arg=-Wl,--as-needed",
 ]
 
-# x86_64 musl
+# -----------------------
+# Linux x86_64 (musl)
+# -----------------------
 [target.x86_64-unknown-linux-musl]
-linker = "rust-lld"       
+linker = "rust-lld"
 rustflags = [
-    "-C", "target-cpu=x86-64-v2", 
-    "-C", "link-arg=-fuse-ld=lld", 
+    "-C", "target-cpu=x86-64-v2",
+    "-C", "link-arg=-Wl,-O3",
+    "-C", "link-arg=-Wl,--gc-sections",
 ]
 
-# aarch64 musl
+# -----------------------
+# Linux aarch64 (musl)
+# -----------------------
 [target.aarch64-unknown-linux-musl]
 linker = "rust-lld"
 rustflags = [
-    "-C", "target-cpu=generic",     
-    "-C", "link-arg=-fuse-ld=lld",
+    "-C", "target-cpu=generic",
+
+    "-C", "link-arg=-Wl,-O3",
+    "-C", "link-arg=-Wl,--gc-sections",
 ]
 
+# -----------------------
 # macOS x86_64
+# -----------------------
 [target.x86_64-apple-darwin]
 rustflags = [
     "-C", "target-cpu=x86-64-v2",
 ]
 
+# -----------------------
 # macOS ARM64
+# -----------------------
 [target.aarch64-apple-darwin]
 rustflags = [
-    "-C", "target-cpu=apple-m1", 
+    "-C", "target-cpu=apple-m1",
 ]
-
-[build]
-# jobs = 8  # 可以手动指定
-
-[term]
-verbose = false
-color = "auto"
