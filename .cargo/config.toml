@@ -1,0 +1,48 @@
+# x86_64 GNU
+[target.x86_64-unknown-linux-gnu]
+rustflags = [
+    "-C", "target-cpu=x86-64-v2",  
+    "-C", "link-arg=-fuse-ld=lld",
+]
+
+# aarch64 GNU
+[target.aarch64-unknown-linux-gnu]
+rustflags = [
+    "-C", "target-cpu=generic",
+    "-C", "link-arg=-fuse-ld=lld",
+]
+
+# x86_64 musl
+[target.x86_64-unknown-linux-musl]
+linker = "rust-lld"       
+rustflags = [
+    "-C", "target-cpu=x86-64-v2", 
+    "-C", "link-arg=-fuse-ld=lld", 
+]
+
+# aarch64 musl
+[target.aarch64-unknown-linux-musl]
+linker = "rust-lld"
+rustflags = [
+    "-C", "target-cpu=generic",     
+    "-C", "link-arg=-fuse-ld=lld",
+]
+
+# macOS x86_64
+[target.x86_64-apple-darwin]
+rustflags = [
+    "-C", "target-cpu=x86-64-v2",
+]
+
+# macOS ARM64
+[target.aarch64-apple-darwin]
+rustflags = [
+    "-C", "target-cpu=apple-m1", 
+]
+
+[build]
+# jobs = 8  # 可以手动指定
+
+[term]
+verbose = false
+color = "auto"
