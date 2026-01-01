@@ -13,18 +13,21 @@
 - 🚀 **高性能** - 基于 Tokio 异步运行时，支持高并发
 - ⚡ **零拷贝优化** - 减少不必要的内存复制，提升性能
 - 🏗️ **模块化架构** - 清晰的模块划分，易于扩展和维护
+- 📊 **性能监控** - 基于 Prometheus 的指标收集和导出
+- 🏥 **健康检查** - HTTP 健康检查端点，支持 JSON 和 Prometheus 格式指标
+- 📝 **日志系统** - 支持多级别日志、文件输出、JSON 格式和日志轮转
 
 ## 工作原理
 
 ### 整体架构
 
-DNS Proxy Server 接收来自客户端的 DNS 查询请求，通过 Protocol Readers（DoH、DoT、DoQ、DoH3）处理不同协议的请求。系统从请求中提取 SNI（Server Name Indication），通过 SNI Rewriter 进行域名重写，然后使用 Certificate Resolver 根据 SNI 动态选择 TLS 证书，最后将请求转发到上游 DNS 服务器。
+DNS Proxy Server 接收来自客户端的 DNS 查询请求，通过 Protocol Readers（DoH、DoT、DoQ、DoH3）处理不同协议的请求。系统从请求中提取 SNI（Server Name Indication），通过 SNI Rewriter 进行域名重写，然后使用 Certificate Resolver 根据 SNI 动态选择 TLS 证书，最后将请求转发到上游 DNS 服务器。同时，系统会收集性能指标并通过健康检查服务器提供监控接口。
 
 ### 工作流程详解
 
 #### 1. 启动阶段
 
-程序从 `main.rs` 开始，首先加载配置文件（`config.toml` 或使用默认值），然后创建 `App` 实例，初始化 SNI Rewriter，最后并行启动各个协议的服务器（DoT Server、DoH Server、DoQ Server、DoH3 Server）。
+程序从 `main.rs` 开始，首先初始化 Rustls 加密提供者，然后加载配置文件（`config.toml` 或使用默认值）并验证配置，接着初始化日志系统，创建 `App` 实例（包括初始化 SNI Rewriter 和指标收集器），最后并行启动各个协议的服务器（DoT Server、DoH Server、DoQ Server、DoH3 Server）以及健康检查服务器。
 
 #### 2. 请求处理流程（以 DoH 为例）
 
@@ -119,9 +122,13 @@ src/
 ├── main.rs              # 程序入口，初始化日志和配置
 ├── app.rs               # 应用生命周期管理，启动各协议服务器
 ├── config.rs            # 配置结构定义和加载逻辑
+├── server.rs            # 服务器启动工具和共享资源
+├── metrics.rs           # Prometheus 指标收集和导出
+├── logging.rs           # 日志系统初始化
 ├── sni.rs               # SNI 重写器 trait 定义
 ├── rewrite.rs           # Rewriter 工厂函数
 ├── tls_utils.rs         # TLS 证书加载和动态选择
+├── utils.rs             # 工具函数
 ├── quic/                # QUIC 相关模块
 │   ├── mod.rs          # 模块导出
 │   ├── config.rs       # QUIC 服务器配置
@@ -129,7 +136,8 @@ src/
 ├── upstream/            # 上游连接模块
 │   ├── mod.rs          # 模块导出
 │   ├── http.rs         # HTTP 客户端和转发
-│   └── quic.rs         # QUIC 流转发
+│   ├── quic.rs         # QUIC 流转发
+│   └── pool.rs         # 连接池管理
 ├── proxy/               # 代理转发模块
 │   ├── mod.rs          # 模块导出
 │   └── http.rs         # HTTP 请求处理和 SNI 重写
@@ -138,7 +146,8 @@ src/
 │   ├── doh.rs          # DoH 服务器实现
 │   ├── dot.rs          # DoT 服务器实现
 │   ├── doq.rs          # DoQ 服务器实现
-│   └── doh3.rs         # DoH3 服务器实现
+│   ├── doh3.rs         # DoH3 服务器实现
+│   └── healthcheck.rs  # 健康检查服务器
 └── rewriters/          # SNI 重写器实现
     ├── mod.rs          # 模块导出
     └── base.rs         # 基础前缀提取重写器
@@ -151,7 +160,9 @@ tests/                   # 测试用例
 ├── app.rs              # 应用测试
 ├── quic.rs             # QUIC 模块测试
 ├── upstream.rs         # 上游模块测试
-└── proxy.rs            # 代理模块测试
+├── proxy.rs            # 代理模块测试
+├── metrics.rs          # 指标模块测试
+└── performance.rs      # 性能测试
 ```
 
 ### 核心模块说明
@@ -210,11 +221,37 @@ QUIC 相关的配置和连接管理：
 - 证书缓存机制
 - 锁中毒检测
 
+#### `metrics.rs` - 性能监控
+
+- Prometheus 指标收集
+- 请求统计（总数、成功、失败）
+- 流量统计（接收、发送字节数）
+- SNI 重写统计
+- 上游错误统计
+- 处理时间直方图
+- 指标快照缓存（减少锁竞争）
+- 支持 Prometheus 文本格式和 JSON 格式导出
+
+#### `server.rs` - 服务器工具
+
+- 统一的服务器启动接口
+- 共享资源管理（配置、重写器、指标）
+- 优雅关闭支持
+
+#### `readers/healthcheck.rs` - 健康检查服务器
+
+- HTTP 健康检查端点
+- Prometheus 指标导出（`/metrics` 或 `/stats`）
+- JSON 格式指标导出（`/metrics/json`）
+- 可配置的检查路径
+
 #### `app.rs` - 应用管理
 
 - 配置加载和验证
 - 重写器创建
+- 指标收集器初始化
 - 各协议服务器启动（并行）
+- 健康检查服务器启动
 - 生命周期管理
 
 ## 配置说明
@@ -255,6 +292,13 @@ port = 853
 enabled = false
 bind_address = "0.0.0.0"
 port = 443
+
+# Healthcheck server - HTTP endpoint for health checks
+[servers.healthcheck]
+enabled = true
+bind_address = "0.0.0.0"
+port = 8080
+path = "/health"
 
 [upstream]
 # 默认上游服务器
@@ -297,6 +341,19 @@ key_file = "/path/to/example-org-key.pem"
 - **`enabled`**: 是否启用该协议服务器
 - **`bind_address`**: 绑定地址（如 "0.0.0.0" 或 "127.0.0.1"）
 - **`port`**: 监听端口
+
+健康检查服务器配置（`[servers.healthcheck]`）：
+
+- **`enabled`**: 是否启用健康检查服务器
+- **`bind_address`**: 绑定地址
+- **`port`**: 监听端口（默认：8080）
+- **`path`**: 健康检查路径（默认：`/health`）
+
+健康检查服务器提供以下端点：
+
+- `GET /health` - 返回服务健康状态（JSON 格式）
+- `GET /metrics` 或 `GET /stats` - 返回 Prometheus 格式指标
+- `GET /metrics/json` - 返回 JSON 格式指标
 
 #### `[upstream]` - 上游服务器配置
 
@@ -377,6 +434,7 @@ cargo test --test config
 cargo test --test quic
 cargo test --test upstream
 cargo test --test proxy
+cargo test --test metrics
 
 # 运行单元测试
 cargo test --lib
@@ -384,6 +442,32 @@ cargo test --lib
 # 显示测试输出
 cargo test -- --nocapture
 ```
+
+### 监控和健康检查
+
+启动服务后，可以通过健康检查端点监控服务状态：
+
+```bash
+# 检查服务健康状态
+curl http://localhost:8080/health
+
+# 获取 Prometheus 格式指标
+curl http://localhost:8080/metrics
+
+# 获取 JSON 格式指标
+curl http://localhost:8080/metrics/json
+```
+
+健康检查端点返回的指标包括：
+
+- 总请求数
+- 成功/失败请求数
+- 接收/发送字节数
+- SNI 重写次数
+- 上游错误数
+- 平均处理时间
+- 成功率
+- 吞吐量（请求/秒）
 
 ## 扩展性
 
@@ -419,14 +503,19 @@ cargo test -- --nocapture
    - 直接使用 `to_bytes()` 而非额外复制
    - 使用切片引用传递数据（`&[u8]` 而非 `Vec<u8>`）
 6. **共享客户端实例** - HTTP 客户端在服务器实例间共享，避免重复创建
-7. **模块化设计** - 清晰的模块划分，减少代码重复，提高可维护性
+7. **指标快照缓存** - 指标快照缓存 1 秒，减少锁竞争和重复计算
+8. **批量指标更新** - 使用 `record_request()` 批量更新多个指标，减少原子操作次数
+9. **模块化设计** - 清晰的模块划分，减少代码重复，提高可维护性
+10. **连接池管理** - 上游连接池复用，减少连接建立开销
 
 ## 待完善功能
 
 - [ ] TLS 证书动态加载和热重载
 - [x] 更完善的错误处理和日志记录
-- [ ] 性能监控和统计
+- [x] 性能监控和统计
 - [ ] 配置热重载
+- [ ] 请求限流和速率限制
+- [ ] 更细粒度的指标标签（按协议、域名等）
 
 ## 依赖
 
@@ -445,14 +534,19 @@ cargo test -- --nocapture
 - `tracing` / `tracing-subscriber` - 日志记录（支持 JSON 格式和日志轮转）
 - `tracing-appender` - 日志文件输出和轮转
 - `anyhow` - 错误处理（提供详细的错误上下文）
+- `thiserror` - 错误类型定义
 - `bytes` - 字节处理（零拷贝优化）
 - `http-body-util` - HTTP body 工具
 - `async-trait` - 异步 trait 支持
 - `futures` - Future 工具
+- `prometheus` - Prometheus 指标收集和导出
+- `dashmap` - 并发哈希表（用于 SNI 映射缓存）
 
 ### 开发依赖
 
 - `tempfile` - 临时文件（测试用）
+- `reqwest` - HTTP 客户端（测试用）
+- `tokio-test` - Tokio 测试工具
 
 ## 许可证
 
