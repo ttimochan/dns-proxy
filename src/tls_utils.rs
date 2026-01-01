@@ -30,26 +30,26 @@ impl CertificateResolver {
             .with_context(|| format!("Failed to read key file: {}", cert_config.key_file))?;
 
         let mut cert_reader = BufReader::new(cert_bytes.as_slice());
-        let certs_bytes =
-            rustls_pemfile::certs(&mut cert_reader).context("Failed to parse certificate")?;
+        let certs_iter = rustls_pemfile::certs(&mut cert_reader);
 
-        if certs_bytes.is_empty() {
-            anyhow::bail!("No certificates found in certificate file");
-        }
-
-        let certs: Vec<rustls::pki_types::CertificateDer> = certs_bytes
+        let certs: Vec<rustls::pki_types::CertificateDer> = certs_iter
+            .collect::<Result<Vec<_>, _>>()
+            .context("Failed to parse certificate")?
             .into_iter()
             .map(rustls::pki_types::CertificateDer::from)
             .collect();
 
-        let mut key_reader = BufReader::new(key_bytes.as_slice());
-        let keys_bytes = rustls_pemfile::pkcs8_private_keys(&mut key_reader)
-            .context("Failed to parse private key")?;
+        if certs.is_empty() {
+            anyhow::bail!("No certificates found in certificate file");
+        }
 
-        let key_bytes = keys_bytes
-            .into_iter()
+        let mut key_reader = BufReader::new(key_bytes.as_slice());
+        let mut keys_iter = rustls_pemfile::pkcs8_private_keys(&mut key_reader);
+
+        let key_bytes = keys_iter
             .next()
-            .ok_or_else(|| anyhow::anyhow!("No private key found in key file"))?;
+            .ok_or_else(|| anyhow::anyhow!("No private key found in key file"))?
+            .context("Failed to parse private key")?;
 
         let key = rustls::pki_types::PrivateKeyDer::from(
             rustls::pki_types::PrivatePkcs8KeyDer::from(key_bytes),
