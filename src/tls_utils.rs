@@ -34,10 +34,7 @@ impl CertificateResolver {
 
         let certs: Vec<rustls::pki_types::CertificateDer> = certs_iter
             .collect::<Result<Vec<_>, _>>()
-            .context("Failed to parse certificate")?
-            .into_iter()
-            .map(rustls::pki_types::CertificateDer::from)
-            .collect();
+            .context("Failed to parse certificate")?;
 
         if certs.is_empty() {
             anyhow::bail!("No certificates found in certificate file");
@@ -51,9 +48,7 @@ impl CertificateResolver {
             .ok_or_else(|| anyhow::anyhow!("No private key found in key file"))?
             .context("Failed to parse private key")?;
 
-        let key = rustls::pki_types::PrivateKeyDer::from(
-            rustls::pki_types::PrivatePkcs8KeyDer::from(key_bytes),
-        );
+        let key = rustls::pki_types::PrivateKeyDer::from(key_bytes);
         let signing_key = rustls::crypto::aws_lc_rs::sign::any_supported_type(&key)
             .context("Failed to create signing key")?;
 
