@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     build-essential \
     pkg-config \
-    libssl-dev \
+    upx-ucl \
     && rm -rf /var/lib/apt/lists/*
 
 ENV RUSTUP_HOME=/usr/local/rustup \
@@ -21,11 +21,17 @@ COPY . .
 
 RUN cargo build --release
 
+RUN echo "=== Original binary size ===" && \
+    ls -lh /app/target/release/dns-proxy && \
+    echo "=== Compressing with UPX ===" && \
+    upx --best /app/target/release/dns-proxy && \
+    echo "=== Compressed binary size ===" && \
+    ls -lh /app/target/release/dns-proxy
+
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y \
     ca-certificates \
-    libssl3 \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
