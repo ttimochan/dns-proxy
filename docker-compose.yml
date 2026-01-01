@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   dns-proxy:
-    image: dns-proxy:latest
+    image: timochan/dns-proxy:latest
     container_name: dns-proxy
     build:
       context: .
