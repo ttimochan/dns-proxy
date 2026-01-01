@@ -7,6 +7,7 @@ mod quic;
 mod readers;
 mod rewrite;
 mod rewriters;
+mod server;
 mod sni;
 mod tls_utils;
 mod upstream;

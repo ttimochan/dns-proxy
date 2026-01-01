@@ -23,6 +23,15 @@ pub struct RewriteConfig {
     /// Target suffix for upstream (e.g., ".example.cn")
     /// The extracted prefix will be combined with this suffix to form the target hostname
     pub target_suffix: String,
+    /// Strategy for handling SNI rewrite failures
+    /// - "error": Return error when rewrite fails (default)
+    /// - "passthrough": Use original hostname when rewrite fails
+    #[serde(default = "default_rewrite_failure_strategy")]
+    pub rewrite_failure_strategy: String,
+}
+
+fn default_rewrite_failure_strategy() -> String {
+    "error".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -151,6 +160,7 @@ impl Default for AppConfig {
             rewrite: RewriteConfig {
                 base_domains: vec!["example.com".to_string(), "example.org".to_string()],
                 target_suffix: ".example.cn".to_string(),
+                rewrite_failure_strategy: default_rewrite_failure_strategy(),
             },
             servers: ServersConfig {
                 dot: ServerPortConfig {

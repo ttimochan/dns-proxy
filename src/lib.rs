@@ -1,11 +1,13 @@
 pub mod app;
 pub mod config;
+pub mod error;
 pub mod metrics;
 pub mod proxy;
 pub mod quic;
 pub mod readers;
 pub mod rewrite;
 pub mod rewriters;
+pub mod server;
 pub mod sni;
 pub mod tls_utils;
 pub mod upstream;

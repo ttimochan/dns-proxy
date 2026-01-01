@@ -248,6 +248,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-rustls 0.24.1",
  "tokio-test",

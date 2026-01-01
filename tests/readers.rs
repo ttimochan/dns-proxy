@@ -8,6 +8,7 @@ fn create_test_rewriter() -> dns_proxy::rewrite::SniRewriterType {
     create_rewriter(RewriteConfig {
         base_domains: vec!["example.com".to_string()],
         target_suffix: ".example.cn".to_string(),
+        rewrite_failure_strategy: "error".to_string(),
     })
 }
 

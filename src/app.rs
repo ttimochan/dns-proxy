@@ -1,10 +1,11 @@
 use crate::config::AppConfig;
 use crate::metrics::Metrics;
 use crate::rewrite::{SniRewriterType, create_rewriter};
+use crate::server::{ServerResources, ServerStarter};
 use anyhow::Result;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tracing::{error, info};
+use tracing::info;
 
 /// DNS Proxy application that manages all protocol servers
 pub struct App {
@@ -52,113 +53,112 @@ impl App {
     }
 
     fn start_healthcheck_server(&mut self) {
+        use crate::readers::HealthcheckServer;
         if !self.config.servers.healthcheck.enabled {
             return;
         }
 
-        use crate::readers::HealthcheckServer;
         let config = Arc::clone(&self.config);
         let metrics = Arc::clone(&self.metrics);
+        let bind_addr = format!(
+            "{}:{}",
+            self.config.servers.healthcheck.bind_address, self.config.servers.healthcheck.port
+        );
+        let path = self.config.servers.healthcheck.path.clone();
         let handle = tokio::spawn(async move {
             let server = HealthcheckServer::new(config, metrics);
             if let Err(e) = server.start().await {
-                error!("Healthcheck server error: {}", e);
+                tracing::error!("Healthcheck server error: {}", e);
             }
         });
         self.handles.push(handle);
         info!(
-            "Healthcheck server started on {}:{} at path {}",
-            self.config.servers.healthcheck.bind_address,
-            self.config.servers.healthcheck.port,
-            self.config.servers.healthcheck.path
+            "Healthcheck server started on {} at path {}",
+            bind_addr, path
         );
     }
 
     fn start_dot_server(&mut self) {
-        if !self.config.servers.dot.enabled {
-            return;
-        }
-
         use crate::readers::DoTServer;
-        let config = Arc::clone(&self.config);
-        let rewriter = Arc::clone(&self.rewriter);
-        let metrics = Arc::clone(&self.metrics);
-        let handle = tokio::spawn(async move {
-            let server = DoTServer::new(config, rewriter, metrics);
-            if let Err(e) = server.start().await {
-                error!("DoT server error: {}", e);
-            }
-        });
-        self.handles.push(handle);
-        info!(
-            "DoT server started on {}:{}",
-            self.config.servers.dot.bind_address, self.config.servers.dot.port
+        let resources = ServerResources::new(
+            Arc::clone(&self.config),
+            Arc::clone(&self.rewriter),
+            Arc::clone(&self.metrics),
         );
+        if let Some(handle) = ServerStarter::start_server(
+            "DoT",
+            &self.config.servers.dot,
+            resources,
+            |resources| async move {
+                let server =
+                    DoTServer::new(resources.config, resources.rewriter, resources.metrics);
+                server.start().await
+            },
+        ) {
+            self.handles.push(handle);
+        }
     }
 
     fn start_doh_server(&mut self) {
-        if !self.config.servers.doh.enabled {
-            return;
-        }
-
         use crate::readers::DoHServer;
-        let config = Arc::clone(&self.config);
-        let rewriter = Arc::clone(&self.rewriter);
-        let metrics = Arc::clone(&self.metrics);
-        let handle = tokio::spawn(async move {
-            let server = DoHServer::new(config, rewriter, metrics);
-            if let Err(e) = server.start().await {
-                error!("DoH server error: {}", e);
-            }
-        });
-        self.handles.push(handle);
-        info!(
-            "DoH server started on {}:{}",
-            self.config.servers.doh.bind_address, self.config.servers.doh.port
+        let resources = ServerResources::new(
+            Arc::clone(&self.config),
+            Arc::clone(&self.rewriter),
+            Arc::clone(&self.metrics),
         );
+        if let Some(handle) = ServerStarter::start_server(
+            "DoH",
+            &self.config.servers.doh,
+            resources,
+            |resources| async move {
+                let server =
+                    DoHServer::new(resources.config, resources.rewriter, resources.metrics);
+                server.start().await
+            },
+        ) {
+            self.handles.push(handle);
+        }
     }
 
     fn start_doq_server(&mut self) {
-        if !self.config.servers.doq.enabled {
-            return;
-        }
-
         use crate::readers::DoQServer;
-        let config = Arc::clone(&self.config);
-        let rewriter = Arc::clone(&self.rewriter);
-        let metrics = Arc::clone(&self.metrics);
-        let handle = tokio::spawn(async move {
-            let server = DoQServer::new(config, rewriter, metrics);
-            if let Err(e) = server.start().await {
-                error!("DoQ server error: {}", e);
-            }
-        });
-        self.handles.push(handle);
-        info!(
-            "DoQ server started on {}:{}",
-            self.config.servers.doq.bind_address, self.config.servers.doq.port
+        let resources = ServerResources::new(
+            Arc::clone(&self.config),
+            Arc::clone(&self.rewriter),
+            Arc::clone(&self.metrics),
         );
+        if let Some(handle) = ServerStarter::start_server(
+            "DoQ",
+            &self.config.servers.doq,
+            resources,
+            |resources| async move {
+                let server =
+                    DoQServer::new(resources.config, resources.rewriter, resources.metrics);
+                server.start().await
+            },
+        ) {
+            self.handles.push(handle);
+        }
     }
 
     fn start_doh3_server(&mut self) {
-        if !self.config.servers.doh3.enabled {
-            return;
-        }
-
         use crate::readers::DoH3Server;
-        let config = Arc::clone(&self.config);
-        let rewriter = Arc::clone(&self.rewriter);
-        let metrics = Arc::clone(&self.metrics);
-        let handle = tokio::spawn(async move {
-            let server = DoH3Server::new(config, rewriter, metrics);
-            if let Err(e) = server.start().await {
-                error!("DoH3 server error: {}", e);
-            }
-        });
-        self.handles.push(handle);
-        info!(
-            "DoH3 server started on {}:{}",
-            self.config.servers.doh3.bind_address, self.config.servers.doh3.port
+        let resources = ServerResources::new(
+            Arc::clone(&self.config),
+            Arc::clone(&self.rewriter),
+            Arc::clone(&self.metrics),
         );
+        if let Some(handle) = ServerStarter::start_server(
+            "DoH3",
+            &self.config.servers.doh3,
+            resources,
+            |resources| async move {
+                let server =
+                    DoH3Server::new(resources.config, resources.rewriter, resources.metrics);
+                server.start().await
+            },
+        ) {
+            self.handles.push(handle);
+        }
     }
 }

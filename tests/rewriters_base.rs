@@ -7,6 +7,7 @@ fn create_test_config() -> RewriteConfig {
     RewriteConfig {
         base_domains: vec!["example.com".to_string(), "example.org".to_string()],
         target_suffix: ".example.cn".to_string(),
+        rewrite_failure_strategy: "error".to_string(),
     }
 }
 

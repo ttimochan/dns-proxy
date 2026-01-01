@@ -2,7 +2,7 @@ use crate::config::RewriteConfig;
 use crate::sni::{RewriteResult, SniRewriter};
 use dashmap::DashMap;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 
 pub struct BaseSniRewriter {
     config: RewriteConfig,
@@ -40,7 +40,53 @@ impl BaseSniRewriter {
 #[async_trait::async_trait]
 impl SniRewriter for BaseSniRewriter {
     async fn rewrite(&self, sni: &str) -> Option<RewriteResult> {
-        let prefix = self.extract_prefix(sni)?;
+        // Validate input
+        if sni.is_empty() {
+            warn!("Empty SNI provided for rewrite");
+            return None;
+        }
+
+        // Check if base domains are configured
+        if self.config.base_domains.is_empty() {
+            warn!("No base domains configured for SNI rewriting");
+            return None;
+        }
+
+        // Validate target suffix
+        if !self.config.target_suffix.starts_with('.') {
+            warn!(
+                "Invalid target suffix: {} (must start with '.')",
+                self.config.target_suffix
+            );
+            return None;
+        }
+
+        // Try to extract prefix
+        let prefix = match self.extract_prefix(sni) {
+            Some(p) => p,
+            None => {
+                // Handle rewrite failure based on strategy
+                match self.config.rewrite_failure_strategy.as_str() {
+                    "passthrough" => {
+                        warn!(
+                            "SNI rewrite failed for '{}', using passthrough strategy",
+                            sni
+                        );
+                        // Return result with original hostname as target
+                        return Some(RewriteResult {
+                            original: sni.to_string(),
+                            prefix: String::new(),
+                            target_hostname: sni.to_string(),
+                        });
+                    }
+                    _ => {
+                        // Default: return None (error strategy)
+                        return None;
+                    }
+                }
+            }
+        };
+
         let target_hostname = self.build_target_hostname(&prefix);
 
         // Cache the mapping for future lookups (lock-free with DashMap)
