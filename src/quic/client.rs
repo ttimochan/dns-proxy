@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use quinn::crypto::rustls::QuicClientConfig;
-use quinn::rustls::pki_types::CertificateDer;
 use quinn::rustls::{ClientConfig, RootCertStore};
 use quinn::{ClientConfig as QuinnClientConfig, Connection, Endpoint};
 use std::net::SocketAddr;
@@ -10,8 +9,9 @@ use std::sync::Arc;
 pub async fn connect_quic_upstream(addr: SocketAddr, server_name: &str) -> Result<Connection> {
     // Create client TLS config with native root certificates
     let mut root_store = RootCertStore::empty();
-    for cert in rustls_native_certs::load_native_certs()? {
-        root_store.add(CertificateDer::from(cert.0))?;
+    let cert_result = rustls_native_certs::load_native_certs();
+    for cert in cert_result.certs {
+        root_store.add(cert)?;
     }
 
     let client_crypto = ClientConfig::builder()

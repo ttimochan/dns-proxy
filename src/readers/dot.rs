@@ -4,7 +4,7 @@ use crate::rewrite::SniRewriterType;
 use crate::tls_utils;
 use crate::utils::BackoffCounter;
 use anyhow::{Context, Result};
-use rustls::ServerName;
+use rustls::pki_types::ServerName;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -140,7 +140,7 @@ impl DoTServer {
         let client_config =
             create_client_config().context("Failed to create TLS client configuration")?;
         let connector = TlsConnector::from(Arc::new(client_config));
-        let sni_name = ServerName::try_from(upstream_hostname).with_context(|| {
+        let sni_name = ServerName::try_from(upstream_hostname.to_string()).with_context(|| {
             format!(
                 "Failed to create ServerName for upstream connection: {}",
                 upstream_hostname
@@ -201,20 +201,14 @@ fn create_client_config() -> Result<rustls::ClientConfig> {
     let mut root_store = rustls::RootCertStore::empty();
 
     // Load system root certificates
-    let certs = rustls_native_certs::load_native_certs()
-        .context("Failed to load system root certificates")?;
-
-    for cert in certs {
-        // rustls_native_certs::Certificate contains Vec<u8> in .0 field
-        // rustls::Certificate accepts Vec<u8>
-        let rustls_cert = rustls::Certificate(cert.0);
+    let cert_result = rustls_native_certs::load_native_certs();
+    for cert in cert_result.certs {
         root_store
-            .add(&rustls_cert)
+            .add(cert)
             .map_err(|e| anyhow::anyhow!("Failed to add root certificate: {}", e))?;
     }
 
     Ok(rustls::ClientConfig::builder()
-        .with_safe_defaults()
         .with_root_certificates(root_store)
         .with_no_client_auth())
 }

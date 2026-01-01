@@ -1,13 +1,26 @@
 use dns_proxy::upstream::pool::{ConnectionPool, HttpClient};
 use dns_proxy::upstream::{create_connection_pool, forward_http_request};
+use std::sync::Once;
+
+static INIT: Once = Once::new();
+
+fn init_crypto_provider() {
+    INIT.call_once(|| {
+        rustls::crypto::aws_lc_rs::default_provider()
+            .install_default()
+            .expect("Failed to install default crypto provider");
+    });
+}
 
 #[test]
 fn test_create_connection_pool() {
+    init_crypto_provider();
     let _pool = create_connection_pool();
 }
 
 #[test]
 fn test_upstream_module_imports() {
+    init_crypto_provider();
     // Test that upstream module exports are accessible
     // Verify the module structure exists
     let pool = create_connection_pool();
@@ -18,6 +31,7 @@ fn test_upstream_module_imports() {
 
 #[tokio::test]
 async fn test_forward_http_request_invalid_uri() {
+    init_crypto_provider();
     use bytes::Bytes;
     use hyper::HeaderMap;
     use hyper::Method;

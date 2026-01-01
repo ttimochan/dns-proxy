@@ -4,6 +4,8 @@ RUN apt-get update && apt-get install -y \
     curl \
     ca-certificates \
     build-essential \
+    binutils \
+    lld \
     pkg-config \
     upx-ucl \
     && rm -rf /var/lib/apt/lists/*
@@ -19,8 +21,8 @@ WORKDIR /app
 
 COPY . .
 
-RUN cargo build --release \
-    && upx --best --lzma ./target/release/dns-proxy
+RUN cargo build --release
+RUN upx --best --lzma ./target/release/dns-proxy
 
 FROM debian:trixie-slim
 

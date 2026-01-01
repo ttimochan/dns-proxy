@@ -37,8 +37,10 @@ impl CertificateResolver {
             anyhow::bail!("No certificates found in certificate file");
         }
 
-        let certs: Vec<rustls::Certificate> =
-            certs_bytes.into_iter().map(rustls::Certificate).collect();
+        let certs: Vec<rustls::pki_types::CertificateDer> = certs_bytes
+            .into_iter()
+            .map(rustls::pki_types::CertificateDer::from)
+            .collect();
 
         let mut key_reader = BufReader::new(key_bytes.as_slice());
         let keys_bytes = rustls_pemfile::pkcs8_private_keys(&mut key_reader)
@@ -49,9 +51,11 @@ impl CertificateResolver {
             .next()
             .ok_or_else(|| anyhow::anyhow!("No private key found in key file"))?;
 
-        let key = rustls::PrivateKey(key_bytes);
-        let signing_key =
-            rustls::sign::any_supported_type(&key).context("Failed to create signing key")?;
+        let key = rustls::pki_types::PrivateKeyDer::from(
+            rustls::pki_types::PrivatePkcs8KeyDer::from(key_bytes),
+        );
+        let signing_key = rustls::crypto::aws_lc_rs::sign::any_supported_type(&key)
+            .context("Failed to create signing key")?;
 
         let certified_key = CertifiedKey::new(certs, signing_key);
 
@@ -90,6 +94,12 @@ pub struct DynamicCertResolver {
 impl DynamicCertResolver {
     pub fn new(resolver: Arc<CertificateResolver>) -> Self {
         Self { resolver }
+    }
+}
+
+impl std::fmt::Debug for DynamicCertResolver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "DynamicCertResolver")
     }
 }
 
@@ -135,7 +145,6 @@ pub async fn create_server_config(config: &AppConfig) -> Result<RustlsServerConf
     let cert_resolver = Arc::new(DynamicCertResolver::new(resolver));
 
     Ok(RustlsServerConfig::builder()
-        .with_safe_defaults()
         .with_no_client_auth()
         .with_cert_resolver(cert_resolver))
 }

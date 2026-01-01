@@ -18,6 +18,11 @@ use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Initialize rustls crypto provider before any TLS operations
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .map_err(|e| anyhow::anyhow!("Failed to install default crypto provider: {:?}", e))?;
+
     // Load config first (before logging init) to get logging config
     let config = config::AppConfig::load_or_default("config.toml");
 
