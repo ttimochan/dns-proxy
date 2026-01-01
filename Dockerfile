@@ -34,7 +34,7 @@ RUN apt-get update && apt-get install -y \
 RUN useradd -m -u 1000 dns-proxy
 COPY --from=builder /app/target/release/dns-proxy /usr/local/bin/dns-proxy
 
-COPY config.toml.example /app/config.toml.example
+COPY config.toml.example /app/config.toml
 WORKDIR /app
 RUN chown -R dns-proxy:dns-proxy /app
 USER dns-proxy
