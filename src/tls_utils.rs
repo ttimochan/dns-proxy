@@ -1,23 +1,22 @@
 use crate::config::{AppConfig, CertificateConfig};
 use anyhow::{Context, Result};
+use dashmap::DashMap;
 use rustls::server::{ClientHello, ResolvesServerCert, ServerConfig as RustlsServerConfig};
 use rustls::sign::CertifiedKey;
-use std::collections::HashMap;
 use std::io::BufReader;
 use std::sync::Arc;
-use std::sync::Mutex;
 use tokio::fs;
 
 pub struct CertificateResolver {
     config: AppConfig,
-    pub cert_cache: Arc<Mutex<HashMap<String, Arc<CertifiedKey>>>>,
+    pub cert_cache: Arc<DashMap<String, Arc<CertifiedKey>>>,
 }
 
 impl CertificateResolver {
     pub fn new(config: AppConfig) -> Self {
         Self {
             config,
-            cert_cache: Arc::new(Mutex::new(HashMap::new())),
+            cert_cache: Arc::new(DashMap::new()),
         }
     }
 
@@ -60,15 +59,9 @@ impl CertificateResolver {
     }
 
     pub async fn get_cert_for_domain(&self, domain: &str) -> Result<Arc<CertifiedKey>> {
-        // Check cache first (fast path)
-        {
-            let cache = self
-                .cert_cache
-                .lock()
-                .map_err(|e| anyhow::anyhow!("Certificate cache lock poisoned: {}", e))?;
-            if let Some(cert) = cache.get(domain) {
-                return Ok(Arc::clone(cert));
-            }
+        // Check cache first (fast path, lock-free with DashMap)
+        if let Some(cert) = self.cert_cache.get(domain) {
+            return Ok(Arc::clone(cert.value()));
         }
 
         // Load certificate from configuration
@@ -82,14 +75,8 @@ impl CertificateResolver {
             .await
             .with_context(|| format!("Failed to load certificate for domain: {}", domain))?;
 
-        // Update cache
-        {
-            let mut cache = self
-                .cert_cache
-                .lock()
-                .map_err(|e| anyhow::anyhow!("Certificate cache lock poisoned: {}", e))?;
-            cache.insert(domain.to_string(), Arc::clone(&cert));
-        }
+        // Update cache (lock-free)
+        self.cert_cache.insert(domain.to_string(), Arc::clone(&cert));
 
         Ok(cert)
     }

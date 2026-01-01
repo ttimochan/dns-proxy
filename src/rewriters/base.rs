@@ -1,20 +1,19 @@
 use crate::config::RewriteConfig;
 use crate::sni::{RewriteResult, SniRewriter};
-use std::collections::HashMap;
+use dashmap::DashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tracing::info;
 
 pub struct BaseSniRewriter {
     config: RewriteConfig,
-    pub sni_map: Arc<RwLock<HashMap<String, String>>>,
+    pub sni_map: Arc<DashMap<String, String>>,
 }
 
 impl BaseSniRewriter {
     pub fn new(config: RewriteConfig) -> Self {
         Self {
             config,
-            sni_map: Arc::new(RwLock::new(HashMap::new())),
+            sni_map: Arc::new(DashMap::new()),
         }
     }
 
@@ -44,11 +43,8 @@ impl SniRewriter for BaseSniRewriter {
         let prefix = self.extract_prefix(sni)?;
         let target_hostname = self.build_target_hostname(&prefix);
 
-        // Cache the mapping for future lookups
-        {
-            let mut cache = self.sni_map.write().await;
-            cache.insert(sni.to_string(), target_hostname.clone());
-        }
+        // Cache the mapping for future lookups (lock-free with DashMap)
+        self.sni_map.insert(sni.to_string(), target_hostname.clone());
 
         info!(
             "SNI Rewrite: {} -> Prefix: {} -> Target: {}",

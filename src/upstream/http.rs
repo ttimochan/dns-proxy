@@ -5,7 +5,11 @@ use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
+use std::time::Duration;
 use tracing::{debug, error, warn};
+
+/// Default timeout for upstream requests (30 seconds)
+const DEFAULT_UPSTREAM_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Shared HTTP client for upstream requests
 pub type HttpClient = Client<HttpConnector, Full<Bytes>>;
@@ -15,7 +19,7 @@ pub fn create_http_client() -> HttpClient {
     Client::builder(TokioExecutor::new()).build_http()
 }
 
-/// Forward HTTP request to upstream server
+/// Forward HTTP request to upstream server with timeout control
 /// Returns the response and the body size in bytes for metrics
 pub async fn forward_http_request(
     client: &HttpClient,
@@ -36,9 +40,15 @@ pub async fn forward_http_request(
             )
         })?;
 
-    //TODO: Copy headers efficiently (zerocopy where possible)
+    // Copy headers efficiently - only copy necessary headers
+    // Skip headers that will be overwritten or aren't needed
+    let skip_headers = ["host", "connection", "keep-alive", "transfer-encoding"];
     for (key, value) in headers {
-        req.headers_mut().insert(key, value.clone());
+        let key_str = key.as_str();
+        if !skip_headers.contains(&key_str) {
+            // Use reference to avoid cloning when possible
+            req.headers_mut().insert(key, value.clone());
+        }
     }
 
     req.headers_mut().insert(
@@ -53,8 +63,12 @@ pub async fn forward_http_request(
         method, upstream_uri, target_hostname
     );
 
-    match client.request(req).await {
-        Ok(resp) => {
+    // Add timeout control to prevent hanging requests
+    let request_future = client.request(req);
+    let timeout_future = tokio::time::timeout(DEFAULT_UPSTREAM_TIMEOUT, request_future);
+
+    match timeout_future.await {
+        Ok(Ok(resp)) => {
             let status = resp.status();
             let (parts, body) = resp.into_parts();
 
@@ -89,7 +103,7 @@ pub async fn forward_http_request(
                 body_size,
             ))
         }
-        Err(e) => {
+        Ok(Err(e)) => {
             error!(
                 "HTTP upstream request failed: {} {} -> {} (target: {})",
                 method, upstream_uri, e, target_hostname
@@ -106,6 +120,27 @@ pub async fn forward_http_request(
                 .with_context(|| {
                     format!(
                         "Failed to create error response for upstream failure: {}",
+                        upstream_uri
+                    )
+                })
+        }
+        Err(_) => {
+            error!(
+                "HTTP upstream request timeout: {} {} (target: {}, timeout: {:?})",
+                method, upstream_uri, target_hostname, DEFAULT_UPSTREAM_TIMEOUT
+            );
+
+            // Return timeout error response
+            let error_msg = format!("Upstream timeout after {:?}", DEFAULT_UPSTREAM_TIMEOUT);
+            let error_body = Full::new(error_msg.clone().into());
+            let error_size = error_msg.len() as u64;
+            Response::builder()
+                .status(StatusCode::GATEWAY_TIMEOUT)
+                .body(error_body)
+                .map(|resp| (resp, error_size))
+                .with_context(|| {
+                    format!(
+                        "Failed to create timeout response for upstream: {}",
                         upstream_uri
                     )
                 })

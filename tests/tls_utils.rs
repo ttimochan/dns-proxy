@@ -6,7 +6,7 @@ use std::sync::Arc;
 fn test_certificate_resolver_new() {
     let config = AppConfig::default();
     let resolver = CertificateResolver::new(config);
-    assert!(resolver.cert_cache.lock().unwrap().is_empty());
+    assert!(resolver.cert_cache.is_empty());
 }
 
 #[tokio::test]

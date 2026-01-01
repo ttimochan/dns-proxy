@@ -4,37 +4,36 @@ use std::time::Duration;
 #[test]
 fn test_exponential_backoff_attempt_0() {
     let delay = exponential_backoff(0, 100, 10000);
-    // 1^0 = 1, so 100 * 1 = 100
+    // 2^0 = 1, so 100 * 1 = 100ms
     assert_eq!(delay, Duration::from_millis(100));
 }
 
 #[test]
 fn test_exponential_backoff_attempt_1() {
     let delay = exponential_backoff(1, 100, 10000);
-    // 1^1 = 1, so 100 * 1 = 100
-    assert_eq!(delay, Duration::from_millis(100));
+    // 2^1 = 2, so 100 * 2 = 200ms
+    assert_eq!(delay, Duration::from_millis(200));
 }
 
 #[test]
 fn test_exponential_backoff_attempt_2() {
     let delay = exponential_backoff(2, 100, 10000);
-    // 1^2 = 1, so 100 * 1 = 100
-    assert_eq!(delay, Duration::from_millis(100));
+    // 2^2 = 4, so 100 * 4 = 400ms
+    assert_eq!(delay, Duration::from_millis(400));
 }
 
 #[test]
 fn test_exponential_backoff_attempt_3() {
     let delay = exponential_backoff(3, 100, 10000);
-    // 1^3 = 1, so 100 * 1 = 100
-    assert_eq!(delay, Duration::from_millis(100));
+    // 2^3 = 8, so 100 * 8 = 800ms
+    assert_eq!(delay, Duration::from_millis(800));
 }
 
 #[test]
 fn test_exponential_backoff_max_delay() {
     let delay = exponential_backoff(20, 100, 1000);
-    // 1^20 = 1, so 100 * 1 = 100, but capped at max_delay 1000
-    // Actually, since 100 < 1000, it returns 100
-    assert_eq!(delay, Duration::from_millis(100));
+    // 2^20 * 100 = 104857600ms, but capped at max_delay 1000ms
+    assert_eq!(delay, Duration::from_millis(1000));
 }
 
 #[test]
@@ -56,31 +55,39 @@ fn test_backoff_counter_new() {
 fn test_backoff_counter_sequence() {
     let counter = BackoffCounter::new();
 
-    // First call: attempt 0, 1^0 = 1, so 100 * 1 = 100
+    // First call: attempt 0, 2^0 = 1, so 100 * 1 = 100ms
     let delay1 = counter.next_delay(100, 10000);
     assert_eq!(delay1, Duration::from_millis(100));
 
-    // Second call: attempt 1, 1^1 = 1, so 100 * 1 = 100
+    // Second call: attempt 1, 2^1 = 2, so 100 * 2 = 200ms
     let delay2 = counter.next_delay(100, 10000);
-    assert_eq!(delay2, Duration::from_millis(100));
+    assert_eq!(delay2, Duration::from_millis(200));
 
-    // Third call: attempt 2, 1^2 = 1, so 100 * 1 = 100
+    // Third call: attempt 2, 2^2 = 4, so 100 * 4 = 400ms
     let delay3 = counter.next_delay(100, 10000);
-    assert_eq!(delay3, Duration::from_millis(100));
+    assert_eq!(delay3, Duration::from_millis(400));
 }
 
 #[test]
 fn test_backoff_counter_reset_after_10() {
     let counter = BackoffCounter::new();
 
-    // Call 10 times to reach attempt 10
-    for _ in 0..10 {
-        let _ = counter.next_delay(100, 10000);
+    // Call 10 times (attempt 0-9)
+    for i in 0..10 {
+        let delay = counter.next_delay(100, 10000);
+        let expected = 100u64 * 2u64.pow(i);
+        let capped = expected.min(10000);
+        assert_eq!(delay, Duration::from_millis(capped), "Failed at iteration {}", i);
     }
 
-    // Next call should reset to attempt 0
+    // 11th call: attempt 10 >= 10, so it triggers reset after getting the delay
+    // The delay for attempt 10 should be 2^10 * 100 = 102400ms, capped to 10000ms
     let delay = counter.next_delay(100, 10000);
-    assert_eq!(delay, Duration::from_millis(100));
+    assert_eq!(delay, Duration::from_millis(10000), "11th call should return attempt 10 delay");
+
+    // 12th call: reset was triggered, so this is attempt 0
+    let delay = counter.next_delay(100, 10000);
+    assert_eq!(delay, Duration::from_millis(100), "12th call should be attempt 0 after reset");
 }
 
 #[test]

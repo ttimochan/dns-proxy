@@ -97,11 +97,11 @@ async fn test_rewrite_sni_caching() {
     let result1 = rewriter.rewrite("www.example.org").await;
     assert!(result1.is_some());
 
-    let cached = rewriter.sni_map.read().await;
-    assert!(cached.contains_key("www.example.org"));
+    // Check cache using DashMap API
+    assert!(rewriter.sni_map.contains_key("www.example.org"));
     assert_eq!(
-        cached.get("www.example.org"),
-        Some(&"www.example.cn".to_string())
+        rewriter.sni_map.get("www.example.org").map(|v| v.clone()),
+        Some("www.example.cn".to_string())
     );
 }
 

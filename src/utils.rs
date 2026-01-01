@@ -9,7 +9,7 @@ pub fn exponential_backoff(
     max_delay_ms: u64,
 ) -> std::time::Duration {
     let delay_ms = base_delay_ms
-        .saturating_mul(1u64.saturating_pow(attempt.min(10))) // Cap at 2^10 to prevent overflow
+        .saturating_mul(2u64.saturating_pow(attempt.min(10))) // 2^attempt with cap at 2^10
         .min(max_delay_ms);
     std::time::Duration::from_millis(delay_ms)
 }
