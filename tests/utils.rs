@@ -77,17 +77,30 @@ fn test_backoff_counter_reset_after_10() {
         let delay = counter.next_delay(100, 10000);
         let expected = 100u64 * 2u64.pow(i);
         let capped = expected.min(10000);
-        assert_eq!(delay, Duration::from_millis(capped), "Failed at iteration {}", i);
+        assert_eq!(
+            delay,
+            Duration::from_millis(capped),
+            "Failed at iteration {}",
+            i
+        );
     }
 
     // 11th call: attempt 10 >= 10, so it triggers reset after getting the delay
     // The delay for attempt 10 should be 2^10 * 100 = 102400ms, capped to 10000ms
     let delay = counter.next_delay(100, 10000);
-    assert_eq!(delay, Duration::from_millis(10000), "11th call should return attempt 10 delay");
+    assert_eq!(
+        delay,
+        Duration::from_millis(10000),
+        "11th call should return attempt 10 delay"
+    );
 
     // 12th call: reset was triggered, so this is attempt 0
     let delay = counter.next_delay(100, 10000);
-    assert_eq!(delay, Duration::from_millis(100), "12th call should be attempt 0 after reset");
+    assert_eq!(
+        delay,
+        Duration::from_millis(100),
+        "12th call should be attempt 0 after reset"
+    );
 }
 
 #[test]

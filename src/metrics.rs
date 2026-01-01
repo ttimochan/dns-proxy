@@ -7,7 +7,7 @@ use tokio::sync::RwLock;
 #[derive(Clone)]
 pub struct Metrics {
     registry: Arc<Registry>,
-    
+
     // Prometheus metrics
     total_requests: IntCounter,
     successful_requests: IntCounter,
@@ -17,7 +17,7 @@ pub struct Metrics {
     sni_rewrites: IntCounter,
     upstream_errors: IntCounter,
     processing_time: Histogram,
-    
+
     // Cached snapshot to avoid repeated reads
     cached_snapshot: Arc<RwLock<Option<CachedSnapshot>>>,
 }
@@ -40,48 +40,74 @@ impl Metrics {
     pub fn new() -> Self {
         let registry = Registry::new();
 
-        let total_requests = IntCounter::with_opts(
-            Opts::new("dns_proxy_requests_total", "Total number of DNS requests")
-        ).unwrap();
-        
-        let successful_requests = IntCounter::with_opts(
-            Opts::new("dns_proxy_requests_success", "Number of successful DNS requests")
-        ).unwrap();
-        
-        let failed_requests = IntCounter::with_opts(
-            Opts::new("dns_proxy_requests_failed", "Number of failed DNS requests")
-        ).unwrap();
-        
-        let bytes_received = IntCounter::with_opts(
-            Opts::new("dns_proxy_bytes_received_total", "Total bytes received")
-        ).unwrap();
-        
-        let bytes_sent = IntCounter::with_opts(
-            Opts::new("dns_proxy_bytes_sent_total", "Total bytes sent")
-        ).unwrap();
-        
-        let sni_rewrites = IntCounter::with_opts(
-            Opts::new("dns_proxy_sni_rewrites_total", "Total number of SNI rewrites")
-        ).unwrap();
-        
-        let upstream_errors = IntCounter::with_opts(
-            Opts::new("dns_proxy_upstream_errors_total", "Total number of upstream errors")
-        ).unwrap();
-        
+        let total_requests = IntCounter::with_opts(Opts::new(
+            "dns_proxy_requests_total",
+            "Total number of DNS requests",
+        ))
+        .unwrap();
+
+        let successful_requests = IntCounter::with_opts(Opts::new(
+            "dns_proxy_requests_success",
+            "Number of successful DNS requests",
+        ))
+        .unwrap();
+
+        let failed_requests = IntCounter::with_opts(Opts::new(
+            "dns_proxy_requests_failed",
+            "Number of failed DNS requests",
+        ))
+        .unwrap();
+
+        let bytes_received = IntCounter::with_opts(Opts::new(
+            "dns_proxy_bytes_received_total",
+            "Total bytes received",
+        ))
+        .unwrap();
+
+        let bytes_sent =
+            IntCounter::with_opts(Opts::new("dns_proxy_bytes_sent_total", "Total bytes sent"))
+                .unwrap();
+
+        let sni_rewrites = IntCounter::with_opts(Opts::new(
+            "dns_proxy_sni_rewrites_total",
+            "Total number of SNI rewrites",
+        ))
+        .unwrap();
+
+        let upstream_errors = IntCounter::with_opts(Opts::new(
+            "dns_proxy_upstream_errors_total",
+            "Total number of upstream errors",
+        ))
+        .unwrap();
+
         let processing_time = Histogram::with_opts(
-            HistogramOpts::new("dns_proxy_processing_time_seconds", "DNS request processing time in seconds")
-                .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0])
-        ).unwrap();
+            HistogramOpts::new(
+                "dns_proxy_processing_time_seconds",
+                "DNS request processing time in seconds",
+            )
+            .buckets(vec![
+                0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+            ]),
+        )
+        .unwrap();
 
         // Register all metrics
         registry.register(Box::new(total_requests.clone())).unwrap();
-        registry.register(Box::new(successful_requests.clone())).unwrap();
-        registry.register(Box::new(failed_requests.clone())).unwrap();
+        registry
+            .register(Box::new(successful_requests.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(failed_requests.clone()))
+            .unwrap();
         registry.register(Box::new(bytes_received.clone())).unwrap();
         registry.register(Box::new(bytes_sent.clone())).unwrap();
         registry.register(Box::new(sni_rewrites.clone())).unwrap();
-        registry.register(Box::new(upstream_errors.clone())).unwrap();
-        registry.register(Box::new(processing_time.clone())).unwrap();
+        registry
+            .register(Box::new(upstream_errors.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(processing_time.clone()))
+            .unwrap();
 
         Self {
             registry: Arc::new(registry),
@@ -168,7 +194,7 @@ impl Metrics {
         let total = self.total_requests.get();
         let successful = self.successful_requests.get();
         let failed = self.failed_requests.get();
-        
+
         // Calculate derived metrics
         let success_rate = if total > 0 {
             (successful as f64 / total as f64) * 100.0

@@ -76,7 +76,8 @@ impl CertificateResolver {
             .with_context(|| format!("Failed to load certificate for domain: {}", domain))?;
 
         // Update cache (lock-free)
-        self.cert_cache.insert(domain.to_string(), Arc::clone(&cert));
+        self.cert_cache
+            .insert(domain.to_string(), Arc::clone(&cert));
 
         Ok(cert)
     }

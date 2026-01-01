@@ -44,7 +44,8 @@ impl SniRewriter for BaseSniRewriter {
         let target_hostname = self.build_target_hostname(&prefix);
 
         // Cache the mapping for future lookups (lock-free with DashMap)
-        self.sni_map.insert(sni.to_string(), target_hostname.clone());
+        self.sni_map
+            .insert(sni.to_string(), target_hostname.clone());
 
         info!(
             "SNI Rewrite: {} -> Prefix: {} -> Target: {}",

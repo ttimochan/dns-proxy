@@ -94,7 +94,7 @@ async fn handle_healthcheck(
     if path == "/metrics" || path == "/stats" {
         // Return Prometheus format
         let prometheus_output = metrics.export_prometheus();
-        
+
         return Ok(Response::builder()
             .status(StatusCode::OK)
             .header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
