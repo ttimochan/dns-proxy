@@ -148,7 +148,7 @@ async fn test_metrics_endpoint() {
     // Give server time to start
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    // Test metrics endpoint
+    // Test metrics endpoint (now returns Prometheus format)
     let client = reqwest::Client::new();
     let url = format!("http://127.0.0.1:{}/metrics", 18081);
 
@@ -157,16 +157,15 @@ async fn test_metrics_endpoint() {
         if let Ok(response) = result {
             if response.status().is_success() {
                 let body = response.text().await.unwrap();
-                // Verify JSON structure
-                assert!(body.contains("total_requests"));
-                assert!(body.contains("successful_requests"));
-                assert!(body.contains("failed_requests"));
-                assert!(body.contains("bytes_received"));
-                assert!(body.contains("bytes_sent"));
-                assert!(body.contains("sni_rewrites"));
-                assert!(body.contains("upstream_errors"));
-                assert!(body.contains("average_processing_time_ms"));
-                assert!(body.contains("success_rate"));
+                // Verify Prometheus format
+                assert!(body.contains("dns_proxy_requests_total"));
+                assert!(body.contains("dns_proxy_requests_success"));
+                assert!(body.contains("dns_proxy_requests_failed"));
+                assert!(body.contains("dns_proxy_bytes_received_total"));
+                assert!(body.contains("dns_proxy_bytes_sent_total"));
+                assert!(body.contains("dns_proxy_sni_rewrites_total"));
+                assert!(body.contains("dns_proxy_upstream_errors_total"));
+                assert!(body.contains("dns_proxy_processing_time_seconds"));
             }
         }
     }
@@ -188,7 +187,7 @@ async fn test_metrics_collection() {
     let app = App::new(config);
 
     // Initially, metrics should be zero
-    let snapshot = app.metrics.snapshot();
+    let snapshot = app.metrics.snapshot().await;
     assert_eq!(snapshot.total_requests, 0);
 
     // Record some metrics
@@ -199,8 +198,10 @@ async fn test_metrics_collection() {
     app.metrics.record_sni_rewrite();
     app.metrics.record_upstream_error();
 
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
     // Verify metrics were recorded
-    let snapshot = app.metrics.snapshot();
+    let snapshot = app.metrics.snapshot().await;
     assert_eq!(snapshot.total_requests, 2);
     assert_eq!(snapshot.successful_requests, 1);
     assert_eq!(snapshot.failed_requests, 1);

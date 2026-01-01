@@ -92,7 +92,19 @@ async fn handle_healthcheck(
 
     // Handle metrics endpoint
     if path == "/metrics" || path == "/stats" {
-        let snapshot = metrics.snapshot();
+        // Return Prometheus format
+        let prometheus_output = metrics.export_prometheus();
+        
+        return Ok(Response::builder()
+            .status(StatusCode::OK)
+            .header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            .body(Full::new(Bytes::from(prometheus_output)))
+            .unwrap());
+    }
+
+    // Handle JSON metrics endpoint
+    if path == "/metrics/json" {
+        let snapshot = metrics.snapshot().await;
         let response = serde_json::json!({
             "total_requests": snapshot.total_requests,
             "successful_requests": snapshot.successful_requests,
@@ -102,7 +114,8 @@ async fn handle_healthcheck(
             "sni_rewrites": snapshot.sni_rewrites,
             "upstream_errors": snapshot.upstream_errors,
             "average_processing_time_ms": snapshot.average_processing_time_ms,
-            "success_rate": snapshot.success_rate
+            "success_rate": snapshot.success_rate,
+            "throughput_requests_per_sec": snapshot.throughput_requests_per_sec
         });
 
         return Ok(Response::builder()

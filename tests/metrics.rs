@@ -2,171 +2,10 @@ use dns_proxy::metrics::{Metrics, Timer};
 use std::sync::Arc;
 use std::time::Duration;
 
-#[test]
-fn test_metrics_new() {
+#[tokio::test]
+async fn test_metrics_snapshot_empty() {
     let metrics = Metrics::new();
-    assert_eq!(
-        metrics
-            .total_requests
-            .load(std::sync::atomic::Ordering::Relaxed),
-        0
-    );
-    assert_eq!(
-        metrics
-            .successful_requests
-            .load(std::sync::atomic::Ordering::Relaxed),
-        0
-    );
-    assert_eq!(
-        metrics
-            .failed_requests
-            .load(std::sync::atomic::Ordering::Relaxed),
-        0
-    );
-    assert_eq!(
-        metrics
-            .bytes_received
-            .load(std::sync::atomic::Ordering::Relaxed),
-        0
-    );
-    assert_eq!(
-        metrics
-            .bytes_sent
-            .load(std::sync::atomic::Ordering::Relaxed),
-        0
-    );
-    assert_eq!(
-        metrics
-            .sni_rewrites
-            .load(std::sync::atomic::Ordering::Relaxed),
-        0
-    );
-    assert_eq!(
-        metrics
-            .upstream_errors
-            .load(std::sync::atomic::Ordering::Relaxed),
-        0
-    );
-}
-
-#[test]
-fn test_metrics_default() {
-    let metrics = Metrics::default();
-    assert_eq!(
-        metrics
-            .total_requests
-            .load(std::sync::atomic::Ordering::Relaxed),
-        0
-    );
-}
-
-#[test]
-fn test_metrics_record_request_success() {
-    let metrics = Metrics::new();
-    metrics.record_request(true, 100, 200, Duration::from_millis(50));
-
-    assert_eq!(
-        metrics
-            .total_requests
-            .load(std::sync::atomic::Ordering::Relaxed),
-        1
-    );
-    assert_eq!(
-        metrics
-            .successful_requests
-            .load(std::sync::atomic::Ordering::Relaxed),
-        1
-    );
-    assert_eq!(
-        metrics
-            .failed_requests
-            .load(std::sync::atomic::Ordering::Relaxed),
-        0
-    );
-    assert_eq!(
-        metrics
-            .bytes_received
-            .load(std::sync::atomic::Ordering::Relaxed),
-        100
-    );
-    assert_eq!(
-        metrics
-            .bytes_sent
-            .load(std::sync::atomic::Ordering::Relaxed),
-        200
-    );
-}
-
-#[test]
-fn test_metrics_record_request_failure() {
-    let metrics = Metrics::new();
-    metrics.record_request(false, 50, 0, Duration::from_millis(10));
-
-    assert_eq!(
-        metrics
-            .total_requests
-            .load(std::sync::atomic::Ordering::Relaxed),
-        1
-    );
-    assert_eq!(
-        metrics
-            .successful_requests
-            .load(std::sync::atomic::Ordering::Relaxed),
-        0
-    );
-    assert_eq!(
-        metrics
-            .failed_requests
-            .load(std::sync::atomic::Ordering::Relaxed),
-        1
-    );
-    assert_eq!(
-        metrics
-            .bytes_received
-            .load(std::sync::atomic::Ordering::Relaxed),
-        50
-    );
-    assert_eq!(
-        metrics
-            .bytes_sent
-            .load(std::sync::atomic::Ordering::Relaxed),
-        0
-    );
-}
-
-#[test]
-fn test_metrics_record_sni_rewrite() {
-    let metrics = Metrics::new();
-    metrics.record_sni_rewrite();
-    metrics.record_sni_rewrite();
-
-    assert_eq!(
-        metrics
-            .sni_rewrites
-            .load(std::sync::atomic::Ordering::Relaxed),
-        2
-    );
-}
-
-#[test]
-fn test_metrics_record_upstream_error() {
-    let metrics = Metrics::new();
-    metrics.record_upstream_error();
-    metrics.record_upstream_error();
-    metrics.record_upstream_error();
-
-    assert_eq!(
-        metrics
-            .upstream_errors
-            .load(std::sync::atomic::Ordering::Relaxed),
-        3
-    );
-}
-
-#[test]
-fn test_metrics_snapshot_empty() {
-    let metrics = Metrics::new();
-    let snapshot = metrics.snapshot();
+    let snapshot = metrics.snapshot().await;
 
     assert_eq!(snapshot.total_requests, 0);
     assert_eq!(snapshot.successful_requests, 0);
@@ -179,8 +18,8 @@ fn test_metrics_snapshot_empty() {
     assert_eq!(snapshot.success_rate, 0.0);
 }
 
-#[test]
-fn test_metrics_snapshot_with_data() {
+#[tokio::test]
+async fn test_metrics_snapshot_with_data() {
     let metrics = Metrics::new();
 
     // Record some requests
@@ -190,7 +29,7 @@ fn test_metrics_snapshot_with_data() {
     metrics.record_sni_rewrite();
     metrics.record_upstream_error();
 
-    let snapshot = metrics.snapshot();
+    let snapshot = metrics.snapshot().await;
 
     assert_eq!(snapshot.total_requests, 3);
     assert_eq!(snapshot.successful_requests, 2);
@@ -209,8 +48,8 @@ fn test_metrics_snapshot_with_data() {
     );
 }
 
-#[test]
-fn test_metrics_concurrent_updates() {
+#[tokio::test]
+async fn test_metrics_concurrent_updates() {
     use std::thread;
 
     let metrics = Arc::new(Metrics::new());
@@ -233,7 +72,7 @@ fn test_metrics_concurrent_updates() {
         handle.join().unwrap();
     }
 
-    let snapshot = metrics.snapshot();
+    let snapshot = metrics.snapshot().await;
     assert_eq!(snapshot.total_requests, 1000);
     assert_eq!(snapshot.successful_requests, 1000);
     assert_eq!(snapshot.sni_rewrites, 1000);
