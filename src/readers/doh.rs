@@ -4,7 +4,7 @@ use crate::proxy::handle_http_request;
 use crate::rewrite::SniRewriterType;
 use crate::upstream::create_connection_pool;
 use crate::upstream::pool::ConnectionPool;
-use crate::utils::BackoffCounter;
+use crate::utils::backoff::BackoffCounter;
 use anyhow::{Context, Result};
 use hyper::server::conn::http1;
 use hyper::service::service_fn;

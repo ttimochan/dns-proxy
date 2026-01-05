@@ -1,4 +1,4 @@
-use dns_proxy::utils::{BackoffCounter, exponential_backoff};
+use dns_proxy::utils::backoff::{BackoffCounter, exponential_backoff};
 use std::time::Duration;
 
 #[test]

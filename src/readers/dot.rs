@@ -2,7 +2,7 @@ use crate::config::AppConfig;
 use crate::metrics::{Metrics, Timer};
 use crate::rewrite::SniRewriterType;
 use crate::tls_utils;
-use crate::utils::BackoffCounter;
+use crate::utils::backoff::BackoffCounter;
 use anyhow::{Context, Result};
 use rustls::pki_types::ServerName;
 use std::sync::Arc;

@@ -119,8 +119,30 @@ pub enum UpstreamError {
 /// Result type alias for convenience
 pub type DnsProxyResult<T> = Result<T, DnsProxyError>;
 
-/// Helper trait to convert errors to DnsProxyError
+/// Helper trait to convert errors to [`DnsProxyError`].
+///
+/// This trait provides a convenient way to wrap errors from external
+/// operations (e.g., parsing, validation) into [`DnsProxyError::InvalidInput`]
+/// with additional context.
+///
+/// # Example
+///
+/// ```rust
+/// use dns_proxy::error::ToDnsProxyError;
+///
+/// let result: Result<String, &'static str> = Err("invalid format");
+/// let converted = result.to_dns_proxy_error("JSON parsing").unwrap_err();
+/// ```
 pub trait ToDnsProxyError<T> {
+    /// Convert the result to a [`DnsProxyResult`] with context.
+    ///
+    /// # Arguments
+    ///
+    /// * `context` - Additional context message describing where/why the error occurred
+    ///
+    /// # Returns
+    ///
+    /// [`DnsProxyResult`] with the original value or wrapped error
     fn to_dns_proxy_error(self, context: &str) -> Result<T, DnsProxyError>;
 }
 
