@@ -1,6 +1,6 @@
 use crate::config::AppConfig;
+use crate::error::DnsProxyResult;
 use crate::metrics::Metrics;
-use anyhow::{Context, Result};
 use http_body_util::Full;
 use hyper::body::Bytes;
 use hyper::server::conn::http1;
@@ -21,7 +21,7 @@ impl HealthcheckServer {
         Self { config, metrics }
     }
 
-    pub async fn start(&self) -> Result<()> {
+    pub async fn start(&self) -> DnsProxyResult<()> {
         let server_config = &self.config.servers.healthcheck;
         if !server_config.enabled {
             info!("Healthcheck server is disabled");
@@ -29,9 +29,7 @@ impl HealthcheckServer {
         }
 
         let bind_addr = format!("{}:{}", server_config.bind_address, server_config.port);
-        let listener = TcpListener::bind(&bind_addr)
-            .await
-            .with_context(|| format!("Failed to bind healthcheck server to {}", bind_addr))?;
+        let listener = TcpListener::bind(&bind_addr).await?;
 
         info!(
             "Healthcheck server listening on {}:{} at path {}",
@@ -81,10 +79,10 @@ async fn handle_healthcheck(
 ) -> Result<Response<Full<Bytes>>, std::io::Error> {
     // Only handle GET requests
     if req.method() != Method::GET {
-        return Ok(Response::builder()
+        return Response::builder()
             .status(StatusCode::METHOD_NOT_ALLOWED)
             .body(Full::new(Bytes::from("Method not allowed")))
-            .unwrap());
+            .map_err(std::io::Error::other);
     }
 
     // Check if the path matches the healthcheck path or metrics path
@@ -95,11 +93,11 @@ async fn handle_healthcheck(
         // Return Prometheus format
         let prometheus_output = metrics.export_prometheus();
 
-        return Ok(Response::builder()
+        return Response::builder()
             .status(StatusCode::OK)
             .header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
             .body(Full::new(Bytes::from(prometheus_output)))
-            .unwrap());
+            .map_err(std::io::Error::other);
     }
 
     // Handle JSON metrics endpoint
@@ -118,18 +116,18 @@ async fn handle_healthcheck(
             "throughput_requests_per_sec": snapshot.throughput_requests_per_sec
         });
 
-        return Ok(Response::builder()
+        return Response::builder()
             .status(StatusCode::OK)
             .header("Content-Type", "application/json")
             .body(Full::new(Bytes::from(response.to_string())))
-            .unwrap());
+            .map_err(std::io::Error::other);
     }
 
     if path != healthcheck_path {
-        return Ok(Response::builder()
+        return Response::builder()
             .status(StatusCode::NOT_FOUND)
             .body(Full::new(Bytes::from("Not found")))
-            .unwrap());
+            .map_err(std::io::Error::other);
     }
 
     // Return healthy status
@@ -138,9 +136,9 @@ async fn handle_healthcheck(
         "service": "dns-proxy"
     });
 
-    Ok(Response::builder()
+    Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
         .body(Full::new(Bytes::from(response.to_string())))
-        .unwrap())
+        .map_err(std::io::Error::other)
 }

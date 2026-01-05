@@ -1,8 +1,8 @@
 /// Common server startup utilities
 use crate::config::{AppConfig, ServerPortConfig};
+use crate::error::DnsProxyResult;
 use crate::metrics::Metrics;
 use crate::rewrite::SniRewriterType;
-use anyhow::Result;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
@@ -20,7 +20,7 @@ impl ServerStarter {
     ) -> Option<JoinHandle<()>>
     where
         F: FnOnce(ServerResources) -> Fut + Send + 'static,
-        Fut: std::future::Future<Output = Result<()>> + Send + 'static,
+        Fut: std::future::Future<Output = DnsProxyResult<()>> + Send + 'static,
     {
         if !config.enabled {
             info!("{} server is disabled", name);

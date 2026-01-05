@@ -10,42 +10,12 @@ fn test_sni_rewrite_error_no_matching_base_domain() {
 }
 
 #[test]
-fn test_sni_rewrite_error_invalid_hostname() {
-    let error = SniRewriteError::InvalidHostname {
-        hostname: "".to_string(),
-    };
-    assert!(error.to_string().contains("Invalid hostname"));
-}
-
-#[test]
-fn test_sni_rewrite_error_missing_prefix() {
-    let error = SniRewriteError::MissingPrefix {
-        hostname: "example.com".to_string(),
-    };
-    assert!(error.to_string().contains("Missing prefix"));
-}
-
-#[test]
-fn test_sni_rewrite_error_empty_base_domains() {
-    let error = SniRewriteError::EmptyBaseDomains;
-    assert!(error.to_string().contains("No base domains configured"));
-}
-
-#[test]
-fn test_sni_rewrite_error_invalid_target_suffix() {
-    let error = SniRewriteError::InvalidTargetSuffix {
-        suffix: "example.cn".to_string(),
-    };
-    assert!(error.to_string().contains("Invalid target suffix"));
-    assert!(error.to_string().contains("must start with '.'"));
-}
-
-#[test]
-fn test_certificate_error_file_not_found() {
-    let error = CertificateError::FileNotFound {
+fn test_certificate_error_load_failed() {
+    let error = CertificateError::LoadFailed {
         path: "/path/to/cert.pem".to_string(),
+        reason: "Permission denied".to_string(),
     };
-    assert!(error.to_string().contains("Certificate file not found"));
+    assert!(error.to_string().contains("Failed to load certificate"));
     assert!(error.to_string().contains("/path/to/cert.pem"));
 }
 
@@ -69,21 +39,13 @@ fn test_upstream_error_connection_failed() {
 }
 
 #[test]
-fn test_upstream_error_timeout() {
-    let error = UpstreamError::Timeout {
+fn test_upstream_error_request_failed() {
+    let error = UpstreamError::RequestFailed {
         upstream: "8.8.8.8:853".to_string(),
-        timeout: std::time::Duration::from_secs(30),
+        reason: "Timeout".to_string(),
     };
-    assert!(error.to_string().contains("timeout"));
+    assert!(error.to_string().contains("Upstream request failed"));
     assert!(error.to_string().contains("8.8.8.8:853"));
-}
-
-#[test]
-fn test_upstream_error_invalid_address() {
-    let error = UpstreamError::InvalidAddress {
-        address: "invalid".to_string(),
-    };
-    assert!(error.to_string().contains("Invalid upstream address"));
 }
 
 #[test]
@@ -97,8 +59,9 @@ fn test_dns_proxy_error_from_sni_rewrite() {
 
 #[test]
 fn test_dns_proxy_error_from_certificate() {
-    let cert_error = CertificateError::FileNotFound {
+    let cert_error = CertificateError::LoadFailed {
         path: "/path/to/cert.pem".to_string(),
+        reason: "Parse error".to_string(),
     };
     let dns_error: DnsProxyError = cert_error.into();
     assert!(matches!(dns_error, DnsProxyError::Certificate(_)));

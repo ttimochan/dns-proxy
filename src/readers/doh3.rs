@@ -1,11 +1,11 @@
 use crate::config::AppConfig;
+use crate::error::{DnsProxyError, DnsProxyResult};
 use crate::metrics::{Metrics, Timer};
 use crate::quic::create_quic_server_endpoint;
 use crate::rewrite::SniRewriterType;
 use crate::sni::SniRewriter;
 use crate::upstream::pool::ConnectionPool;
 use crate::upstream::{create_connection_pool, forward_http_request};
-use anyhow::{Context, Result};
 use bytes::{Buf, Bytes};
 use h3::server::Connection as H3ServerConnection;
 use hyper::Method;
@@ -30,7 +30,7 @@ impl DoH3Server {
         }
     }
 
-    pub async fn start(&self) -> Result<()> {
+    pub async fn start(&self) -> DnsProxyResult<()> {
         let server_config = &self.config.servers.doh3;
         if !server_config.enabled {
             info!("DoH3 server is disabled");
@@ -38,9 +38,9 @@ impl DoH3Server {
         }
 
         let bind_addr = format!("{}:{}", server_config.bind_address, server_config.port);
-        let addr: SocketAddr = bind_addr
-            .parse()
-            .with_context(|| format!("Invalid bind address: {}", bind_addr))?;
+        let addr: SocketAddr = bind_addr.parse().map_err(|e| {
+            DnsProxyError::InvalidInput(format!("Invalid bind address: {}", e))
+        })?;
 
         let endpoint = create_quic_server_endpoint(self.config.as_ref(), addr).await?;
         info!("DoH3 server listening on UDP {}", addr);
@@ -86,11 +86,11 @@ impl DoH3Server {
         rewriter: SniRewriterType,
         pool: Arc<ConnectionPool>,
         metrics: Arc<Metrics>,
-    ) -> Result<()> {
+    ) -> DnsProxyResult<()> {
         // Create H3 connection from quinn connection
         let mut conn = H3ServerConnection::new(h3_quinn::Connection::new(connection))
             .await
-            .context("Failed to create H3 connection")?;
+            .map_err(|e| DnsProxyError::Protocol(format!("Failed to create H3 connection: {}", e)))?;
 
         loop {
             match conn.accept().await {
@@ -137,7 +137,7 @@ impl DoH3Server {
         rewriter: SniRewriterType,
         pool: Arc<ConnectionPool>,
         metrics: Arc<Metrics>,
-    ) -> Result<()> {
+    ) -> DnsProxyResult<()> {
         let timer = Timer::start();
         let method = req.method().clone();
         let uri = req.uri().clone();
@@ -148,13 +148,11 @@ impl DoH3Server {
             .get("host")
             .and_then(|h| h.to_str().ok())
             .ok_or_else(|| {
-                anyhow::anyhow!(
+                DnsProxyError::InvalidInput(format!(
                     "Missing or invalid Host header in {} request to {}",
-                    method,
-                    uri
-                )
-            })
-            .context("Failed to extract Host header from DoH3 request")?;
+                    method, uri
+                ))
+            })?;
 
         debug!("Processing DoH3 request for host: {}", host);
 
@@ -162,12 +160,10 @@ impl DoH3Server {
             .rewrite(host)
             .await
             .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "SNI rewrite failed for hostname: {} (no matching base domain found)",
-                    host
-                )
-            })
-            .context("SNI rewrite operation failed for DoH3 request")?;
+                DnsProxyError::SniRewrite(crate::error::SniRewriteError::NoMatchingBaseDomain {
+                    hostname: host.to_string(),
+                })
+            })?;
 
         // Record SNI rewrite
         metrics.record_sni_rewrite();
@@ -207,8 +203,10 @@ impl DoH3Server {
                     }
                     Ok(None) => break,
                     Err(e) => {
-                        return Err(anyhow::anyhow!("Failed to read DoH3 request body: {}", e))
-                            .context("Error reading request body from DoH3 stream");
+                        return Err(DnsProxyError::Protocol(format!(
+                            "Failed to read DoH3 request body: {}",
+                            e
+                        )));
                     }
                 }
             }
@@ -242,12 +240,10 @@ impl DoH3Server {
                 debug!("DoH3 upstream request failed: {}", e);
                 metrics.record_request(false, bytes_received, 0, duration);
                 metrics.record_upstream_error();
-                return Err(e).with_context(|| {
-                    format!(
-                        "Failed to forward DoH3 request to upstream: {}",
-                        upstream_uri
-                    )
-                });
+                return Err(DnsProxyError::Upstream(crate::error::UpstreamError::RequestFailed {
+                    upstream: upstream_uri,
+                    reason: e.to_string(),
+                }));
             }
         };
 
@@ -257,12 +253,12 @@ impl DoH3Server {
         stream
             .send_response(response.map(|_| ()))
             .await
-            .context("Failed to send DoH3 response to client")?;
+            .map_err(|e| DnsProxyError::Protocol(format!("Failed to send DoH3 response: {}", e)))?;
 
         stream
             .finish()
             .await
-            .context("Failed to finish DoH3 response stream")?;
+            .map_err(|e| DnsProxyError::Protocol(format!("Failed to finish DoH3 response: {}", e)))?;
 
         Ok(())
     }

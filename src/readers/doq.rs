@@ -1,9 +1,9 @@
 use crate::config::AppConfig;
+use crate::error::DnsProxyResult;
 use crate::metrics::{Metrics, Timer};
 use crate::quic::create_quic_server_endpoint;
 use crate::rewrite::SniRewriterType;
 use crate::upstream::forward_quic_stream;
-use anyhow::{Context, Result};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing::{error, info};
@@ -23,7 +23,7 @@ impl DoQServer {
         }
     }
 
-    pub async fn start(&self) -> Result<()> {
+    pub async fn start(&self) -> DnsProxyResult<()> {
         let server_config = &self.config.servers.doq;
         if !server_config.enabled {
             info!("DoQ server is disabled");
@@ -31,9 +31,9 @@ impl DoQServer {
         }
 
         let bind_addr = format!("{}:{}", server_config.bind_address, server_config.port);
-        let addr: SocketAddr = bind_addr
-            .parse()
-            .with_context(|| format!("Invalid bind address: {}", bind_addr))?;
+        let addr: SocketAddr = bind_addr.parse().map_err(|e| {
+            crate::error::DnsProxyError::InvalidInput(format!("Invalid bind address: {}", e))
+        })?;
 
         let endpoint = create_quic_server_endpoint(self.config.as_ref(), addr).await?;
         info!("DoQ server listening on UDP {}", addr);
@@ -41,7 +41,7 @@ impl DoQServer {
         let upstream = self
             .config
             .doq_upstream()
-            .context("Failed to get DoQ upstream address")?;
+            .map_err(|e| crate::error::DnsProxyError::Config(e.to_string()))?;
         let upstream_hostname = self.config.dot_upstream_hostname(); // Reuse the same method
         let rewriter = Arc::clone(&self.rewriter);
 
@@ -90,7 +90,7 @@ impl DoQServer {
         _rewriter: SniRewriterType,
         upstream_hostname: &str,
         metrics: &Metrics,
-    ) -> Result<()> {
+    ) -> DnsProxyResult<()> {
         loop {
             let timer = Timer::start();
             match connection.accept_bi().await {

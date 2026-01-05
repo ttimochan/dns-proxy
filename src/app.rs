@@ -1,8 +1,8 @@
 use crate::config::AppConfig;
+use crate::error::DnsProxyResult;
 use crate::metrics::Metrics;
 use crate::rewrite::{SniRewriterType, create_rewriter};
 use crate::server::{ServerResources, ServerStarter};
-use anyhow::Result;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tracing::info;
@@ -30,7 +30,7 @@ impl App {
     }
 
     /// Start all enabled servers and return handles for graceful shutdown
-    pub fn start(&mut self) -> Result<()> {
+    pub fn start(&mut self) -> DnsProxyResult<()> {
         info!("Starting DNS Proxy Server...");
 
         self.start_healthcheck_server();

@@ -44,41 +44,41 @@ impl Metrics {
             "dns_proxy_requests_total",
             "Total number of DNS requests",
         ))
-        .unwrap();
+        .expect("Failed to create total_requests metric");
 
         let successful_requests = IntCounter::with_opts(Opts::new(
             "dns_proxy_requests_success",
             "Number of successful DNS requests",
         ))
-        .unwrap();
+        .expect("Failed to create successful_requests metric");
 
         let failed_requests = IntCounter::with_opts(Opts::new(
             "dns_proxy_requests_failed",
             "Number of failed DNS requests",
         ))
-        .unwrap();
+        .expect("Failed to create failed_requests metric");
 
         let bytes_received = IntCounter::with_opts(Opts::new(
             "dns_proxy_bytes_received_total",
             "Total bytes received",
         ))
-        .unwrap();
+        .expect("Failed to create bytes_received metric");
 
         let bytes_sent =
             IntCounter::with_opts(Opts::new("dns_proxy_bytes_sent_total", "Total bytes sent"))
-                .unwrap();
+                .expect("Failed to create bytes_sent metric");
 
         let sni_rewrites = IntCounter::with_opts(Opts::new(
             "dns_proxy_sni_rewrites_total",
             "Total number of SNI rewrites",
         ))
-        .unwrap();
+        .expect("Failed to create sni_rewrites metric");
 
         let upstream_errors = IntCounter::with_opts(Opts::new(
             "dns_proxy_upstream_errors_total",
             "Total number of upstream errors",
         ))
-        .unwrap();
+        .expect("Failed to create upstream_errors metric");
 
         let processing_time = Histogram::with_opts(
             HistogramOpts::new(
@@ -89,25 +89,33 @@ impl Metrics {
                 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
             ]),
         )
-        .unwrap();
+        .expect("Failed to create processing_time metric");
 
-        // Register all metrics
-        registry.register(Box::new(total_requests.clone())).unwrap();
+        // Register all metrics - use expect for better error messages
+        registry
+            .register(Box::new(total_requests.clone()))
+            .expect("Failed to register total_requests metric");
         registry
             .register(Box::new(successful_requests.clone()))
-            .unwrap();
+            .expect("Failed to register successful_requests metric");
         registry
             .register(Box::new(failed_requests.clone()))
-            .unwrap();
-        registry.register(Box::new(bytes_received.clone())).unwrap();
-        registry.register(Box::new(bytes_sent.clone())).unwrap();
-        registry.register(Box::new(sni_rewrites.clone())).unwrap();
+            .expect("Failed to register failed_requests metric");
+        registry
+            .register(Box::new(bytes_received.clone()))
+            .expect("Failed to register bytes_received metric");
+        registry
+            .register(Box::new(bytes_sent.clone()))
+            .expect("Failed to register bytes_sent metric");
+        registry
+            .register(Box::new(sni_rewrites.clone()))
+            .expect("Failed to register sni_rewrites metric");
         registry
             .register(Box::new(upstream_errors.clone()))
-            .unwrap();
+            .expect("Failed to register upstream_errors metric");
         registry
             .register(Box::new(processing_time.clone()))
-            .unwrap();
+            .expect("Failed to register processing_time metric");
 
         Self {
             registry: Arc::new(registry),
@@ -159,8 +167,10 @@ impl Metrics {
         let encoder = prometheus::TextEncoder::new();
         let metric_families = self.registry.gather();
         let mut buffer = Vec::new();
-        encoder.encode(&metric_families, &mut buffer).unwrap();
-        String::from_utf8(buffer).unwrap()
+        encoder
+            .encode(&metric_families, &mut buffer)
+            .expect("Failed to encode Prometheus metrics");
+        String::from_utf8(buffer).expect("Prometheus output is not valid UTF-8")
     }
 
     /// Get current metrics snapshot with caching

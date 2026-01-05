@@ -1,17 +1,31 @@
+use crate::error::{DnsProxyError, DnsProxyResult};
 use crate::quic::client::connect_quic_upstream;
-use anyhow::Result;
 use bytes::Bytes;
 use quinn::{Connection, RecvStream, SendStream};
 use std::net::SocketAddr;
 
 /// Forward DNS message over QUIC connection
-pub async fn forward_quic_dns(connection: &Connection, message: &[u8]) -> Result<Bytes> {
-    let (mut send, mut recv) = connection.open_bi().await?;
+pub async fn forward_quic_dns(connection: &Connection, message: &[u8]) -> DnsProxyResult<Bytes> {
+    let (mut send, mut recv) = connection.open_bi().await.map_err(|e| {
+        DnsProxyError::Upstream(crate::error::UpstreamError::RequestFailed {
+            upstream: connection.remote_address().to_string(),
+            reason: format!("Failed to open bidirectional stream: {}", e),
+        })
+    })?;
 
     // Send DNS message to upstream
-    send.write_all(message).await?;
-    send.finish()
-        .map_err(|e| anyhow::anyhow!("Failed to finish upstream stream: {}", e))?;
+    send.write_all(message).await.map_err(|e| {
+        DnsProxyError::Upstream(crate::error::UpstreamError::RequestFailed {
+            upstream: connection.remote_address().to_string(),
+            reason: format!("Failed to write to upstream: {}", e),
+        })
+    })?;
+    send.finish().map_err(|e| {
+        DnsProxyError::Upstream(crate::error::UpstreamError::RequestFailed {
+            upstream: connection.remote_address().to_string(),
+            reason: format!("Failed to finish upstream stream: {}", e),
+        })
+    })?;
 
     // Read response from upstream
     let mut response = Vec::with_capacity(4096);
@@ -26,7 +40,14 @@ pub async fn forward_quic_dns(connection: &Connection, message: &[u8]) -> Result
                 }
             }
             Ok(None) => break,
-            Err(e) => return Err(anyhow::anyhow!("Failed to read from upstream: {}", e)),
+            Err(e) => {
+                return Err(DnsProxyError::Upstream(
+                    crate::error::UpstreamError::RequestFailed {
+                        upstream: connection.remote_address().to_string(),
+                        reason: format!("Failed to read from upstream: {}", e),
+                    },
+                ))
+            }
         }
     }
 
@@ -39,7 +60,7 @@ pub async fn forward_quic_stream(
     mut client_recv: RecvStream,
     upstream_addr: SocketAddr,
     server_name: &str,
-) -> Result<()> {
+) -> DnsProxyResult<()> {
     // Read DNS message from client
     let mut buffer = Vec::with_capacity(4096);
     loop {
@@ -53,7 +74,12 @@ pub async fn forward_quic_stream(
                 }
             }
             Ok(None) => break,
-            Err(e) => return Err(anyhow::anyhow!("Failed to read from client: {}", e)),
+            Err(e) => {
+                return Err(DnsProxyError::Protocol(format!(
+                    "Failed to read from client: {}",
+                    e
+                )))
+            }
         }
     }
 
@@ -68,10 +94,12 @@ pub async fn forward_quic_stream(
     let response = forward_quic_dns(&upstream_conn, &buffer).await?;
 
     // Send response back to client
-    client_send.write_all(&response).await?;
-    client_send
-        .finish()
-        .map_err(|e| anyhow::anyhow!("Failed to finish client stream: {}", e))?;
+    client_send.write_all(&response).await.map_err(|e| {
+        DnsProxyError::Protocol(format!("Failed to write to client: {}", e))
+    })?;
+    client_send.finish().map_err(|e| {
+        DnsProxyError::Protocol(format!("Failed to finish client stream: {}", e))
+    })?;
 
     Ok(())
 }

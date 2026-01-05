@@ -1,5 +1,5 @@
 use crate::config::{AppConfig, CertificateConfig};
-use anyhow::{Context, Result};
+use crate::error::{CertificateError, DnsProxyError, DnsProxyResult};
 use dashmap::DashMap;
 use rustls::server::{ClientHello, ResolvesServerCert, ServerConfig as RustlsServerConfig};
 use rustls::sign::CertifiedKey;
@@ -20,24 +20,34 @@ impl CertificateResolver {
         }
     }
 
-    pub async fn load_certificate(cert_config: &CertificateConfig) -> Result<Arc<CertifiedKey>> {
-        let cert_bytes = fs::read(&cert_config.cert_file).await.with_context(|| {
-            format!("Failed to read certificate file: {}", cert_config.cert_file)
-        })?;
+    pub async fn load_certificate(cert_config: &CertificateConfig) -> DnsProxyResult<Arc<CertifiedKey>> {
+        let cert_bytes = fs::read(&cert_config.cert_file)
+            .await
+            .map_err(|e| DnsProxyError::Certificate(CertificateError::LoadFailed {
+                path: cert_config.cert_file.clone(),
+                reason: format!("Failed to read: {}", e),
+            }))?;
 
         let key_bytes = fs::read(&cert_config.key_file)
             .await
-            .with_context(|| format!("Failed to read key file: {}", cert_config.key_file))?;
+            .map_err(|e| DnsProxyError::Certificate(CertificateError::LoadFailed {
+                path: cert_config.key_file.clone(),
+                reason: format!("Failed to read: {}", e),
+            }))?;
 
         let mut cert_reader = BufReader::new(cert_bytes.as_slice());
         let certs_iter = rustls_pemfile::certs(&mut cert_reader);
 
         let certs: Vec<rustls::pki_types::CertificateDer> = certs_iter
             .collect::<Result<Vec<_>, _>>()
-            .context("Failed to parse certificate")?;
+            .map_err(|e| DnsProxyError::Certificate(CertificateError::InvalidFormat {
+                reason: format!("Failed to parse certificate: {}", e),
+            }))?;
 
         if certs.is_empty() {
-            anyhow::bail!("No certificates found in certificate file");
+            return Err(DnsProxyError::Certificate(CertificateError::InvalidFormat {
+                reason: "No certificates found in certificate file".to_string(),
+            }));
         }
 
         let mut key_reader = BufReader::new(key_bytes.as_slice());
@@ -45,19 +55,25 @@ impl CertificateResolver {
 
         let key_bytes = keys_iter
             .next()
-            .ok_or_else(|| anyhow::anyhow!("No private key found in key file"))?
-            .context("Failed to parse private key")?;
+            .ok_or_else(|| DnsProxyError::Certificate(CertificateError::PrivateKey {
+                reason: "No private key found in key file".to_string(),
+            }))?
+            .map_err(|e| DnsProxyError::Certificate(CertificateError::PrivateKey {
+                reason: format!("Failed to parse private key: {}", e),
+            }))?;
 
         let key = rustls::pki_types::PrivateKeyDer::from(key_bytes);
         let signing_key = rustls::crypto::aws_lc_rs::sign::any_supported_type(&key)
-            .context("Failed to create signing key")?;
+            .map_err(|e| DnsProxyError::Certificate(CertificateError::PrivateKey {
+                reason: format!("Failed to create signing key: {}", e),
+            }))?;
 
         let certified_key = CertifiedKey::new(certs, signing_key);
 
         Ok(Arc::new(certified_key))
     }
 
-    pub async fn get_cert_for_domain(&self, domain: &str) -> Result<Arc<CertifiedKey>> {
+    pub async fn get_cert_for_domain(&self, domain: &str) -> DnsProxyResult<Arc<CertifiedKey>> {
         // Check cache first (fast path, lock-free with DashMap)
         if let Some(cert) = self.cert_cache.get(domain) {
             return Ok(Arc::clone(cert.value()));
@@ -68,11 +84,18 @@ impl CertificateResolver {
             .config
             .tls
             .get_cert_config_or_err(domain)
-            .with_context(|| format!("No certificate configuration for domain: {}", domain))?;
+            .map_err(|_e| DnsProxyError::Certificate(CertificateError::NotConfigured {
+                domain: domain.to_string(),
+            }))?;
 
         let cert = Self::load_certificate(cert_config)
             .await
-            .with_context(|| format!("Failed to load certificate for domain: {}", domain))?;
+            .map_err(|e| {
+                DnsProxyError::Certificate(CertificateError::LoadFailed {
+                    path: cert_config.cert_file.clone(),
+                    reason: format!("Failed to load for domain {}: {}", domain, e),
+                })
+            })?;
 
         // Update cache (lock-free)
         self.cert_cache
@@ -135,7 +158,7 @@ impl ResolvesServerCert for DynamicCertResolver {
     }
 }
 
-pub async fn create_server_config(config: &AppConfig) -> Result<RustlsServerConfig> {
+pub async fn create_server_config(config: &AppConfig) -> DnsProxyResult<RustlsServerConfig> {
     let resolver = Arc::new(CertificateResolver::new(config.clone()));
     let cert_resolver = Arc::new(DynamicCertResolver::new(resolver));
 

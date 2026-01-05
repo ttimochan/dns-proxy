@@ -18,7 +18,7 @@ hyper-rustls = { version = "0.27", features = ["http2", "native-tokio"] }
 http-body-util = "0.1"
 bytes = "1"
 anyhow = "1"
-thiserror = "2"
+thiserror = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "chrono"] }
 tracing-appender = "0.2"

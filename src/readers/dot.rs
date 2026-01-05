@@ -1,9 +1,9 @@
 use crate::config::AppConfig;
+use crate::error::{DnsProxyError, DnsProxyResult};
 use crate::metrics::{Metrics, Timer};
 use crate::rewrite::SniRewriterType;
 use crate::tls_utils;
 use crate::utils::backoff::BackoffCounter;
-use anyhow::{Context, Result};
 use rustls::pki_types::ServerName;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -28,7 +28,7 @@ impl DoTServer {
         }
     }
 
-    pub async fn start(&self) -> Result<()> {
+    pub async fn start(&self) -> DnsProxyResult<()> {
         let server_config = &self.config.servers.dot;
         if !server_config.enabled {
             info!("DoT server is disabled");
@@ -37,20 +37,18 @@ impl DoTServer {
 
         let server_tls_config = tls_utils::create_server_config(self.config.as_ref())
             .await
-            .context("Failed to create TLS server config")?;
+            .map_err(|e| DnsProxyError::Tls(e.to_string()))?;
         let acceptor = TlsAcceptor::from(Arc::new(server_tls_config));
 
         let bind_addr = format!("{}:{}", server_config.bind_address, server_config.port);
-        let listener = TcpListener::bind(&bind_addr)
-            .await
-            .with_context(|| format!("Failed to bind DoT server to {}", bind_addr))?;
+        let listener = TcpListener::bind(&bind_addr).await?;
 
         info!("DoT server listening on TCP {}", bind_addr);
 
         let upstream = self
             .config
             .dot_upstream()
-            .context("Failed to get DoT upstream address")?;
+            .map_err(|e| DnsProxyError::Config(e.to_string()))?;
         let upstream_hostname = self.config.dot_upstream_hostname();
         let rewriter = Arc::clone(&self.rewriter);
 
@@ -106,8 +104,7 @@ impl DoTServer {
         upstream: std::net::SocketAddr,
         upstream_hostname: &str,
         metrics: &Metrics,
-    ) -> Result<()> {
-        use anyhow::Context;
+    ) -> DnsProxyResult<()> {
         use tracing::debug;
 
         let timer = Timer::start();
@@ -115,10 +112,7 @@ impl DoTServer {
 
         // Read DNS message from client (zerocopy: use Bytes directly)
         let mut buffer = Vec::with_capacity(4096);
-        reader
-            .read_to_end(&mut buffer)
-            .await
-            .context("Failed to read DNS message from client")?;
+        reader.read_to_end(&mut buffer).await?;
 
         if buffer.is_empty() {
             debug!("Received empty DNS message, closing connection");
@@ -135,41 +129,36 @@ impl DoTServer {
         // Connect to upstream
         let upstream_stream = TcpStream::connect(upstream)
             .await
-            .with_context(|| format!("Failed to connect to upstream DoT server: {}", upstream))?;
+            .map_err(|e| DnsProxyError::Upstream(crate::error::UpstreamError::ConnectionFailed {
+                upstream: upstream.to_string(),
+                reason: format!("Failed to connect: {}", e),
+            }))?;
 
-        let client_config =
-            create_client_config().context("Failed to create TLS client configuration")?;
+        let client_config = create_client_config().map_err(|e| DnsProxyError::Tls(e.to_string()))?;
         let connector = TlsConnector::from(Arc::new(client_config));
-        let sni_name = ServerName::try_from(upstream_hostname.to_string()).with_context(|| {
-            format!(
+        let sni_name = ServerName::try_from(upstream_hostname.to_string()).map_err(|e| {
+            DnsProxyError::InvalidInput(format!(
                 "Failed to create ServerName for upstream connection: {}",
-                upstream_hostname
-            )
+                e
+            ))
         })?;
 
-        let upstream_tls = connector
-            .connect(sni_name, upstream_stream)
-            .await
-            .context("Failed to establish TLS connection to upstream")?;
+        let upstream_tls = connector.connect(sni_name, upstream_stream).await.map_err(|e| {
+            DnsProxyError::Upstream(crate::error::UpstreamError::ConnectionFailed {
+                upstream: upstream.to_string(),
+                reason: format!("Failed to establish TLS connection: {}", e),
+            })
+        })?;
         let (mut up_reader, mut up_writer) = tokio::io::split(upstream_tls);
 
         // Forward message (zerocopy: use slice reference)
-        up_writer
-            .write_all(&buffer)
-            .await
-            .context("Failed to write DNS message to upstream")?;
-        up_writer
-            .flush()
-            .await
-            .context("Failed to flush DNS message to upstream")?;
+        up_writer.write_all(&buffer).await?;
+        up_writer.flush().await?;
 
         // Read response (zerocopy: reuse buffer)
         buffer.clear();
         buffer.reserve(4096);
-        up_reader
-            .read_to_end(&mut buffer)
-            .await
-            .context("Failed to read DNS response from upstream")?;
+        up_reader.read_to_end(&mut buffer).await?;
 
         debug!(
             "Received DNS response: {} bytes, sending to client",
@@ -178,14 +167,8 @@ impl DoTServer {
 
         // Send response back (zerocopy: use slice reference)
         let bytes_sent = buffer.len() as u64;
-        writer
-            .write_all(&buffer)
-            .await
-            .context("Failed to write DNS response to client")?;
-        writer
-            .flush()
-            .await
-            .context("Failed to flush DNS response to client")?;
+        writer.write_all(&buffer).await?;
+        writer.flush().await?;
 
         // Record metrics
         let duration = timer.elapsed();
@@ -197,7 +180,7 @@ impl DoTServer {
 
 /// Create TLS client configuration for upstream connections
 /// Uses system root certificates for proper TLS verification
-fn create_client_config() -> Result<rustls::ClientConfig> {
+fn create_client_config() -> DnsProxyResult<rustls::ClientConfig> {
     let mut root_store = rustls::RootCertStore::empty();
 
     // Load system root certificates
@@ -205,7 +188,10 @@ fn create_client_config() -> Result<rustls::ClientConfig> {
     for cert in cert_result.certs {
         root_store
             .add(cert)
-            .map_err(|e| anyhow::anyhow!("Failed to add root certificate: {}", e))?;
+            .map_err(|e| DnsProxyError::Certificate(crate::error::CertificateError::LoadFailed {
+                path: "system".to_string(),
+                reason: format!("Failed to add root certificate: {}", e),
+            }))?;
     }
 
     Ok(rustls::ClientConfig::builder()

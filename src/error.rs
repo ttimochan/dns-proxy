@@ -32,10 +32,6 @@ pub enum DnsProxyError {
     #[error("Protocol error: {0}")]
     Protocol(String),
 
-    /// Timeout errors
-    #[error("Operation timeout: {0}")]
-    Timeout(String),
-
     /// Invalid input errors
     #[error("Invalid input: {0}")]
     InvalidInput(String),
@@ -47,31 +43,11 @@ pub enum SniRewriteError {
     /// No matching base domain found
     #[error("No matching base domain found for hostname: {hostname}")]
     NoMatchingBaseDomain { hostname: String },
-
-    /// Invalid hostname format
-    #[error("Invalid hostname format: {hostname}")]
-    InvalidHostname { hostname: String },
-
-    /// Missing prefix in hostname
-    #[error("Missing prefix in hostname: {hostname} (expected format: prefix.base_domain)")]
-    MissingPrefix { hostname: String },
-
-    /// Empty base domain list
-    #[error("No base domains configured for SNI rewriting")]
-    EmptyBaseDomains,
-
-    /// Invalid target suffix
-    #[error("Invalid target suffix: {suffix} (must start with '.')")]
-    InvalidTargetSuffix { suffix: String },
 }
 
 /// Certificate-related errors
 #[derive(Error, Debug)]
 pub enum CertificateError {
-    /// Certificate file not found
-    #[error("Certificate file not found: {path}")]
-    FileNotFound { path: String },
-
     /// Failed to load certificate
     #[error("Failed to load certificate from {path}: {reason}")]
     LoadFailed { path: String, reason: String },
@@ -99,55 +75,13 @@ pub enum UpstreamError {
     /// Request failed
     #[error("Upstream request failed to {upstream}: {reason}")]
     RequestFailed { upstream: String, reason: String },
-
-    /// Timeout
-    #[error("Upstream request timeout to {upstream} after {timeout:?}")]
-    Timeout {
-        upstream: String,
-        timeout: std::time::Duration,
-    },
-
-    /// Invalid upstream address
-    #[error("Invalid upstream address: {address}")]
-    InvalidAddress { address: String },
-
-    /// Upstream returned error status
-    #[error("Upstream returned error status {status} from {upstream}")]
-    ErrorStatus { upstream: String, status: u16 },
 }
 
 /// Result type alias for convenience
 pub type DnsProxyResult<T> = Result<T, DnsProxyError>;
 
-/// Helper trait to convert errors to [`DnsProxyError`].
-///
-/// This trait provides a convenient way to wrap errors from external
-/// operations (e.g., parsing, validation) into [`DnsProxyError::InvalidInput`]
-/// with additional context.
-///
-/// # Example
-///
-/// ```rust
-/// use dns_proxy::error::ToDnsProxyError;
-///
-/// let result: Result<String, &'static str> = Err("invalid format");
-/// let converted = result.to_dns_proxy_error("JSON parsing").unwrap_err();
-/// ```
-pub trait ToDnsProxyError<T> {
-    /// Convert the result to a [`DnsProxyResult`] with context.
-    ///
-    /// # Arguments
-    ///
-    /// * `context` - Additional context message describing where/why the error occurred
-    ///
-    /// # Returns
-    ///
-    /// [`DnsProxyResult`] with the original value or wrapped error
-    fn to_dns_proxy_error(self, context: &str) -> Result<T, DnsProxyError>;
-}
-
-impl<T, E: std::fmt::Display> ToDnsProxyError<T> for Result<T, E> {
-    fn to_dns_proxy_error(self, context: &str) -> Result<T, DnsProxyError> {
-        self.map_err(|e| DnsProxyError::InvalidInput(format!("{}: {}", context, e)))
+impl std::convert::From<anyhow::Error> for DnsProxyError {
+    fn from(e: anyhow::Error) -> Self {
+        DnsProxyError::Protocol(e.to_string())
     }
 }

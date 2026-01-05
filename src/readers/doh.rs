@@ -1,11 +1,11 @@
 use crate::config::AppConfig;
+use crate::error::DnsProxyResult;
 use crate::metrics::Metrics;
 use crate::proxy::handle_http_request;
 use crate::rewrite::SniRewriterType;
 use crate::upstream::create_connection_pool;
 use crate::upstream::pool::ConnectionPool;
 use crate::utils::backoff::BackoffCounter;
-use anyhow::{Context, Result};
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
@@ -32,7 +32,7 @@ impl DoHServer {
         }
     }
 
-    pub async fn start(&self) -> Result<()> {
+    pub async fn start(&self) -> DnsProxyResult<()> {
         let server_config = &self.config.servers.doh;
         if !server_config.enabled {
             info!("DoH server is disabled");
@@ -41,8 +41,7 @@ impl DoHServer {
 
         let bind_addr = format!("{}:{}", server_config.bind_address, server_config.port);
         let listener = TcpListener::bind(&bind_addr)
-            .await
-            .with_context(|| format!("Failed to bind DoH server to {}", bind_addr))?;
+            .await?;
 
         info!("DoH server listening on TCP {}", bind_addr);
 

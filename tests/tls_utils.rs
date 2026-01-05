@@ -50,7 +50,7 @@ async fn test_get_cert_for_domain_no_config() {
     assert!(result.is_err());
     if let Err(e) = result {
         let err_msg = format!("{}", e);
-        assert!(err_msg.contains("No certificate configuration"));
+        assert!(err_msg.contains("No certificate configured"));
     }
 }
 
