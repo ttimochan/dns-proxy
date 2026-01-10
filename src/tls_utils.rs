@@ -20,34 +20,39 @@ impl CertificateResolver {
         }
     }
 
-    pub async fn load_certificate(cert_config: &CertificateConfig) -> DnsProxyResult<Arc<CertifiedKey>> {
-        let cert_bytes = fs::read(&cert_config.cert_file)
-            .await
-            .map_err(|e| DnsProxyError::Certificate(CertificateError::LoadFailed {
+    pub async fn load_certificate(
+        cert_config: &CertificateConfig,
+    ) -> DnsProxyResult<Arc<CertifiedKey>> {
+        let cert_bytes = fs::read(&cert_config.cert_file).await.map_err(|e| {
+            DnsProxyError::Certificate(CertificateError::LoadFailed {
                 path: cert_config.cert_file.clone(),
                 reason: format!("Failed to read: {}", e),
-            }))?;
+            })
+        })?;
 
-        let key_bytes = fs::read(&cert_config.key_file)
-            .await
-            .map_err(|e| DnsProxyError::Certificate(CertificateError::LoadFailed {
+        let key_bytes = fs::read(&cert_config.key_file).await.map_err(|e| {
+            DnsProxyError::Certificate(CertificateError::LoadFailed {
                 path: cert_config.key_file.clone(),
                 reason: format!("Failed to read: {}", e),
-            }))?;
+            })
+        })?;
 
         let mut cert_reader = BufReader::new(cert_bytes.as_slice());
         let certs_iter = rustls_pemfile::certs(&mut cert_reader);
 
-        let certs: Vec<rustls::pki_types::CertificateDer> = certs_iter
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| DnsProxyError::Certificate(CertificateError::InvalidFormat {
-                reason: format!("Failed to parse certificate: {}", e),
-            }))?;
+        let certs: Vec<rustls::pki_types::CertificateDer> =
+            certs_iter.collect::<Result<Vec<_>, _>>().map_err(|e| {
+                DnsProxyError::Certificate(CertificateError::InvalidFormat {
+                    reason: format!("Failed to parse certificate: {}", e),
+                })
+            })?;
 
         if certs.is_empty() {
-            return Err(DnsProxyError::Certificate(CertificateError::InvalidFormat {
-                reason: "No certificates found in certificate file".to_string(),
-            }));
+            return Err(DnsProxyError::Certificate(
+                CertificateError::InvalidFormat {
+                    reason: "No certificates found in certificate file".to_string(),
+                },
+            ));
         }
 
         let mut key_reader = BufReader::new(key_bytes.as_slice());
@@ -55,18 +60,24 @@ impl CertificateResolver {
 
         let key_bytes = keys_iter
             .next()
-            .ok_or_else(|| DnsProxyError::Certificate(CertificateError::PrivateKey {
-                reason: "No private key found in key file".to_string(),
-            }))?
-            .map_err(|e| DnsProxyError::Certificate(CertificateError::PrivateKey {
-                reason: format!("Failed to parse private key: {}", e),
-            }))?;
+            .ok_or_else(|| {
+                DnsProxyError::Certificate(CertificateError::PrivateKey {
+                    reason: "No private key found in key file".to_string(),
+                })
+            })?
+            .map_err(|e| {
+                DnsProxyError::Certificate(CertificateError::PrivateKey {
+                    reason: format!("Failed to parse private key: {}", e),
+                })
+            })?;
 
         let key = rustls::pki_types::PrivateKeyDer::from(key_bytes);
-        let signing_key = rustls::crypto::aws_lc_rs::sign::any_supported_type(&key)
-            .map_err(|e| DnsProxyError::Certificate(CertificateError::PrivateKey {
-                reason: format!("Failed to create signing key: {}", e),
-            }))?;
+        let signing_key =
+            rustls::crypto::aws_lc_rs::sign::any_supported_type(&key).map_err(|e| {
+                DnsProxyError::Certificate(CertificateError::PrivateKey {
+                    reason: format!("Failed to create signing key: {}", e),
+                })
+            })?;
 
         let certified_key = CertifiedKey::new(certs, signing_key);
 
@@ -84,18 +95,18 @@ impl CertificateResolver {
             .config
             .tls
             .get_cert_config_or_err(domain)
-            .map_err(|_e| DnsProxyError::Certificate(CertificateError::NotConfigured {
-                domain: domain.to_string(),
-            }))?;
-
-        let cert = Self::load_certificate(cert_config)
-            .await
-            .map_err(|e| {
-                DnsProxyError::Certificate(CertificateError::LoadFailed {
-                    path: cert_config.cert_file.clone(),
-                    reason: format!("Failed to load for domain {}: {}", domain, e),
+            .map_err(|_e| {
+                DnsProxyError::Certificate(CertificateError::NotConfigured {
+                    domain: domain.to_string(),
                 })
             })?;
+
+        let cert = Self::load_certificate(cert_config).await.map_err(|e| {
+            DnsProxyError::Certificate(CertificateError::LoadFailed {
+                path: cert_config.cert_file.clone(),
+                reason: format!("Failed to load for domain {}: {}", domain, e),
+            })
+        })?;
 
         // Update cache (lock-free)
         self.cert_cache

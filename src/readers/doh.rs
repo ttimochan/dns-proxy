@@ -40,8 +40,7 @@ impl DoHServer {
         }
 
         let bind_addr = format!("{}:{}", server_config.bind_address, server_config.port);
-        let listener = TcpListener::bind(&bind_addr)
-            .await?;
+        let listener = TcpListener::bind(&bind_addr).await?;
 
         info!("DoH server listening on TCP {}", bind_addr);
 

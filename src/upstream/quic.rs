@@ -46,7 +46,7 @@ pub async fn forward_quic_dns(connection: &Connection, message: &[u8]) -> DnsPro
                         upstream: connection.remote_address().to_string(),
                         reason: format!("Failed to read from upstream: {}", e),
                     },
-                ))
+                ));
             }
         }
     }
@@ -78,7 +78,7 @@ pub async fn forward_quic_stream(
                 return Err(DnsProxyError::Protocol(format!(
                     "Failed to read from client: {}",
                     e
-                )))
+                )));
             }
         }
     }
@@ -94,12 +94,13 @@ pub async fn forward_quic_stream(
     let response = forward_quic_dns(&upstream_conn, &buffer).await?;
 
     // Send response back to client
-    client_send.write_all(&response).await.map_err(|e| {
-        DnsProxyError::Protocol(format!("Failed to write to client: {}", e))
-    })?;
-    client_send.finish().map_err(|e| {
-        DnsProxyError::Protocol(format!("Failed to finish client stream: {}", e))
-    })?;
+    client_send
+        .write_all(&response)
+        .await
+        .map_err(|e| DnsProxyError::Protocol(format!("Failed to write to client: {}", e)))?;
+    client_send
+        .finish()
+        .map_err(|e| DnsProxyError::Protocol(format!("Failed to finish client stream: {}", e)))?;
 
     Ok(())
 }

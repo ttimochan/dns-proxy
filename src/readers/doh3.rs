@@ -38,9 +38,9 @@ impl DoH3Server {
         }
 
         let bind_addr = format!("{}:{}", server_config.bind_address, server_config.port);
-        let addr: SocketAddr = bind_addr.parse().map_err(|e| {
-            DnsProxyError::InvalidInput(format!("Invalid bind address: {}", e))
-        })?;
+        let addr: SocketAddr = bind_addr
+            .parse()
+            .map_err(|e| DnsProxyError::InvalidInput(format!("Invalid bind address: {}", e)))?;
 
         let endpoint = create_quic_server_endpoint(self.config.as_ref(), addr).await?;
         info!("DoH3 server listening on UDP {}", addr);
@@ -90,7 +90,9 @@ impl DoH3Server {
         // Create H3 connection from quinn connection
         let mut conn = H3ServerConnection::new(h3_quinn::Connection::new(connection))
             .await
-            .map_err(|e| DnsProxyError::Protocol(format!("Failed to create H3 connection: {}", e)))?;
+            .map_err(|e| {
+                DnsProxyError::Protocol(format!("Failed to create H3 connection: {}", e))
+            })?;
 
         loop {
             match conn.accept().await {
@@ -156,14 +158,11 @@ impl DoH3Server {
 
         debug!("Processing DoH3 request for host: {}", host);
 
-        let rewrite_result = rewriter
-            .rewrite(host)
-            .await
-            .ok_or_else(|| {
-                DnsProxyError::SniRewrite(crate::error::SniRewriteError::NoMatchingBaseDomain {
-                    hostname: host.to_string(),
-                })
-            })?;
+        let rewrite_result = rewriter.rewrite(host).await.ok_or_else(|| {
+            DnsProxyError::SniRewrite(crate::error::SniRewriteError::NoMatchingBaseDomain {
+                hostname: host.to_string(),
+            })
+        })?;
 
         // Record SNI rewrite
         metrics.record_sni_rewrite();
@@ -240,10 +239,12 @@ impl DoH3Server {
                 debug!("DoH3 upstream request failed: {}", e);
                 metrics.record_request(false, bytes_received, 0, duration);
                 metrics.record_upstream_error();
-                return Err(DnsProxyError::Upstream(crate::error::UpstreamError::RequestFailed {
-                    upstream: upstream_uri,
-                    reason: e.to_string(),
-                }));
+                return Err(DnsProxyError::Upstream(
+                    crate::error::UpstreamError::RequestFailed {
+                        upstream: upstream_uri,
+                        reason: e.to_string(),
+                    },
+                ));
             }
         };
 
@@ -255,10 +256,9 @@ impl DoH3Server {
             .await
             .map_err(|e| DnsProxyError::Protocol(format!("Failed to send DoH3 response: {}", e)))?;
 
-        stream
-            .finish()
-            .await
-            .map_err(|e| DnsProxyError::Protocol(format!("Failed to finish DoH3 response: {}", e)))?;
+        stream.finish().await.map_err(|e| {
+            DnsProxyError::Protocol(format!("Failed to finish DoH3 response: {}", e))
+        })?;
 
         Ok(())
     }
