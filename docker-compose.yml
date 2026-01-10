@@ -2,8 +2,8 @@ version: "3.8"
 
 services:
   dns-proxy:
-    image: timochan/dns-proxy:latest
-    container_name: dns-proxy
+    image: timochan/dns-ingress:latest
+    container_name: dns-ingress
     build:
       context: .
       dockerfile: Dockerfile
