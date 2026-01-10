@@ -1,5 +1,5 @@
-use dns_proxy::upstream::pool::{ConnectionPool, HttpClient};
-use dns_proxy::upstream::{create_connection_pool, forward_http_request};
+use dns_ingress::upstream::pool::{ConnectionPool, HttpClient};
+use dns_ingress::upstream::{create_connection_pool, forward_http_request};
 use std::sync::Once;
 
 static INIT: Once = Once::new();

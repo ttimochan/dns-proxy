@@ -1,5 +1,5 @@
-use dns_proxy::config::{AppConfig, CertificateConfig, TlsConfig};
-use dns_proxy::tls_utils::{CertificateResolver, DynamicCertResolver};
+use dns_ingress::config::{AppConfig, CertificateConfig, TlsConfig};
+use dns_ingress::tls_utils::{CertificateResolver, DynamicCertResolver};
 use std::sync::Arc;
 
 #[test]

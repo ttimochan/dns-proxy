@@ -1,5 +1,5 @@
 [package]
-name = "dns-proxy"
+name = "dns-ingress"
 version = "1.0.3"
 edition = "2024"
 

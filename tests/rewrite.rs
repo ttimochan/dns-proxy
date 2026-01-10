@@ -1,6 +1,6 @@
-use dns_proxy::config::RewriteConfig;
-use dns_proxy::rewrite::create_rewriter;
-use dns_proxy::sni::SniRewriter;
+use dns_ingress::config::RewriteConfig;
+use dns_ingress::rewrite::create_rewriter;
+use dns_ingress::sni::SniRewriter;
 use std::sync::Arc;
 
 #[test]

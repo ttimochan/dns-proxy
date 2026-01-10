@@ -1,5 +1,5 @@
-use dns_proxy::app::App;
-use dns_proxy::config::AppConfig;
+use dns_ingress::app::App;
+use dns_ingress::config::AppConfig;
 use std::sync::Arc;
 
 #[test]

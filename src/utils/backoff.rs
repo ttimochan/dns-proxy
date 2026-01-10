@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 /// # Example
 ///
 /// ```
-/// use dns_proxy::utils::backoff::exponential_backoff;
+/// use dns_ingress::utils::backoff::exponential_backoff;
 ///
 /// let delay = exponential_backoff(0, 100, 5000);  // 100ms
 /// let delay = exponential_backoff(1, 100, 5000);  // 200ms
@@ -45,7 +45,7 @@ pub fn exponential_backoff(
 ///
 /// ```rust
 /// use std::time::Duration;
-/// use dns_proxy::utils::backoff::BackoffCounter;
+/// use dns_ingress::utils::backoff::BackoffCounter;
 ///
 /// let counter = BackoffCounter::new();
 /// let delay = counter.next_delay(100, 5000); // 100ms

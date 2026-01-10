@@ -1,4 +1,4 @@
-use dns_proxy::quic::create_quic_server_endpoint;
+use dns_ingress::quic::create_quic_server_endpoint;
 
 #[test]
 fn test_quic_module_imports() {

@@ -1,4 +1,4 @@
-use dns_proxy::upstream::pool::ConnectionPool;
+use dns_ingress::upstream::pool::ConnectionPool;
 use std::sync::Arc;
 use std::sync::Once;
 

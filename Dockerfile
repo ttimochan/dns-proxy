@@ -22,7 +22,7 @@ WORKDIR /app
 COPY . .
 
 RUN cargo build --release
-RUN upx --best --lzma ./target/release/dns-proxy
+RUN upx --best --lzma ./target/release/dns-ingress
 
 FROM debian:trixie-slim
 
@@ -31,14 +31,13 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd -m -u 1000 dns-proxy
-COPY --from=builder /app/target/release/dns-proxy /usr/local/bin/dns-proxy
+RUN useradd -m -u 1000 dns-ingress
+COPY --from=builder /app/target/release/dns-ingress /usr/local/bin/dns-ingress
 
 COPY config.toml.example /app/config.toml
 WORKDIR /app
-RUN chown -R dns-proxy:dns-proxy /app
-USER dns-proxy
+RUN chown -R dns-ingress:dns-ingress /app
+USER dns-ingress
 # Expose ports: DoT: 853, DoH: 443, DoQ: 853, DoH3: 443, Healthcheck: 8080
 EXPOSE 853 443 8080
-ENTRYPOINT ["/usr/local/bin/dns-proxy"]
-
+ENTRYPOINT ["/usr/local/bin/dns-ingress"]

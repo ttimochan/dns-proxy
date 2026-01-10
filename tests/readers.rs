@@ -1,10 +1,10 @@
-use dns_proxy::config::{AppConfig, RewriteConfig};
-use dns_proxy::metrics::Metrics;
-use dns_proxy::readers::{DoH3Server, DoHServer, DoQServer, DoTServer, HealthcheckServer};
-use dns_proxy::rewrite::create_rewriter;
+use dns_ingress::config::{AppConfig, RewriteConfig};
+use dns_ingress::metrics::Metrics;
+use dns_ingress::readers::{DoH3Server, DoHServer, DoQServer, DoTServer, HealthcheckServer};
+use dns_ingress::rewrite::create_rewriter;
 use std::sync::Arc;
 
-fn create_test_rewriter() -> dns_proxy::rewrite::SniRewriterType {
+fn create_test_rewriter() -> dns_ingress::rewrite::SniRewriterType {
     create_rewriter(RewriteConfig {
         base_domains: vec!["example.com".to_string()],
         target_suffix: ".example.cn".to_string(),

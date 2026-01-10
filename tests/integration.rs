@@ -1,6 +1,6 @@
-use dns_proxy::app::App;
-use dns_proxy::config::AppConfig;
-use dns_proxy::sni::SniRewriter;
+use dns_ingress::app::App;
+use dns_ingress::config::AppConfig;
+use dns_ingress::sni::SniRewriter;
 use std::time::Duration;
 use tokio::time::timeout;
 

@@ -1,6 +1,6 @@
-use dns_proxy::config::RewriteConfig;
-use dns_proxy::rewriters::base::BaseSniRewriter;
-use dns_proxy::sni::SniRewriter;
+use dns_ingress::config::RewriteConfig;
+use dns_ingress::rewriters::base::BaseSniRewriter;
+use dns_ingress::sni::SniRewriter;
 
 #[tokio::test]
 async fn test_rewriter_empty_sni() {

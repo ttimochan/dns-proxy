@@ -1,4 +1,4 @@
-use dns_proxy::config::*;
+use dns_ingress::config::*;
 use std::io::Write;
 use tempfile::NamedTempFile;
 

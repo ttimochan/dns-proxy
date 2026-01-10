@@ -1,4 +1,4 @@
-use dns_proxy::error::{CertificateError, DnsProxyError, SniRewriteError, UpstreamError};
+use dns_ingress::error::{CertificateError, DnsProxyError, SniRewriteError, UpstreamError};
 
 #[test]
 fn test_sni_rewrite_error_no_matching_base_domain() {

@@ -1,4 +1,4 @@
-use dns_proxy::metrics::{Metrics, Timer};
+use dns_ingress::metrics::{Metrics, Timer};
 use std::sync::Arc;
 use std::time::Duration;
 
