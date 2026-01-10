@@ -1,5 +1,7 @@
 # DNS Ingress
 
+[中文文档](README.zh-CN.md)
+
 DNS-Ingress is a DNS request router that forwards queries to different upstream servers based on subdomain prefixes. For example: forwarding api.example.org to api.example.cn, and www.example.org to www.example.cn. Supports DoT, DoH, DoQ, DoH3 protocols.
 
 ## Features

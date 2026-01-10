@@ -1,5 +1,7 @@
 # DNS Ingress
 
+[English](README.md)
+
 DNS-Ingress 是一个 DNS 请求路由器，可以根据子域名前缀将查询转发到不同的上游服务器。例如：将 api.example.org 转发到 api.example.cn，将 www.example.org 转发到 www.example.cn。支持 DoT、DoH、DoQ、DoH3 协议。
 
 ## 功能特性
