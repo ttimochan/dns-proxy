@@ -32,7 +32,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: timochan/dns-proxy
+          images: timochan/dns-ingress
           tags: |
             type=ref,event=tag
             type=semver,pattern={{version}}
